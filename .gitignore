@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*$py.class
+.Python
+*.egg-info/
+venv/
+env/
+.venv/
+
+# Arquivos Excel dos usuários (dados sensíveis)
+uploads/
+*.xlsx
+*.xls
+
+# Logs
+*.log
+baixa_nf_log.txt
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# Playwright
+playwright-report/
+test-results/
+
+# Backup
+*.bak
+*~
