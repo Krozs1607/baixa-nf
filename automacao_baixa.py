@@ -332,31 +332,33 @@ class AutomacaoBaixa:
                         const valorAntes = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
                         sel.value = '{EMPRESA_IGUATEMI_VALUE}';
                         // Chama o handler do GeneXus diretamente
+                        const gxFound = !!(window.gx && window.gx.evt && window.gx.evt.onchange);
                         try {{
-                            if (window.gx && window.gx.evt && window.gx.evt.onchange) {{
+                            if (gxFound) {{
                                 window.gx.evt.onchange(sel);
                             }}
                         }} catch(e) {{}}
                         sel.dispatchEvent(new Event('change', {{bubbles: true}}));
                         const valorDepois = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
-                        return 'antes=' + valorAntes + ' | depois=' + valorDepois;
+                        return 'antes=' + valorAntes + ' | depois=' + valorDepois + ' | gx=' + gxFound;
                     }})()
                 """)
-                popup.wait_for_timeout(2000)
+                popup.wait_for_timeout(2500)
                 self._log(f"  Empresa: {resultado_empresa}")
 
                 # Aparece popup de confirmacao "Empresa do Titulo e diferente... Sim/Nao"
-                # Precisa clicar em SIM para confirmar
-                popup.evaluate("""
+                # Busca e clica em SIM a partir do TOP DOCUMENT (page.evaluate)
+                sim_clicado = main_frame.page.evaluate("""
                     (() => {
-                        // Busca botoes Sim em todos os frames acessiveis
-                        function clicarSim(docRef) {
+                        function clicarSim(docRef, label) {
                             let total = 0;
+                            let encontrados = [];
                             try {
                                 const btns = docRef.querySelectorAll('button, input[type="button"]');
                                 for (const b of btns) {
                                     const texto = (b.textContent || b.value || '').trim();
                                     if (texto === 'Sim') {
+                                        encontrados.push(label);
                                         try { b.click(); total++; } catch(e) {}
                                     }
                                 }
@@ -364,18 +366,32 @@ class AutomacaoBaixa:
                                 for (let i = 0; i < subIframes.length; i++) {
                                     try {
                                         if (subIframes[i].contentDocument) {
-                                            total += clicarSim(subIframes[i].contentDocument);
+                                            const r = clicarSim(subIframes[i].contentDocument, label + '>iframe[' + i + ']');
+                                            total += r.total;
+                                            encontrados = encontrados.concat(r.encontrados);
                                         }
                                     } catch(e) {}
                                 }
                             } catch(e) {}
-                            return total;
+                            return {total, encontrados};
                         }
-                        return clicarSim(document);
+                        return clicarSim(document, 'top');
                     })()
                 """)
-                popup.wait_for_timeout(1500)
-                self._log(f"  Popup de confirmacao de Empresa: SIM clicado")
+                popup.wait_for_timeout(2000)
+                self._log(f"  Popup SIM clicado: {sim_clicado}")
+
+                # Verifica valor final da Empresa
+                try:
+                    valor_final = popup.evaluate("""
+                        (() => {
+                            const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
+                            return sel ? sel.value + ':' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?') : 'nao_encontrado';
+                        })()
+                    """)
+                    self._log(f"  Empresa FINAL: {valor_final}")
+                except:
+                    pass
             except Exception as e_emp:
                 self._log(f"  AVISO: nao alterou Empresa: {e_emp}")
             self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
