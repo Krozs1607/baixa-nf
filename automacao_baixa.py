@@ -324,9 +324,37 @@ class AutomacaoBaixa:
             popup.wait_for_timeout(500)
             # 6. Empresa - sempre MANDARIM IGUATEMI (matriz), mesmo para Itabuna/Lauro
             try:
-                popup.locator("#TITULOMOV_EMPRESACOD_MOVIMENTO").select_option(value=EMPRESA_IGUATEMI_VALUE)
-                popup.wait_for_timeout(800)
-                self._log(f"  Empresa: MANDARIM IGUATEMI (matriz)")
+                # Usa JavaScript direto pois select_option do Playwright nao estava funcionando
+                resultado_empresa = popup.evaluate(f"""
+                    (() => {{
+                        const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
+                        if (!sel) return 'nao_encontrado';
+                        const valorAntes = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
+                        sel.value = '{EMPRESA_IGUATEMI_VALUE}';
+                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        sel.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        sel.dispatchEvent(new Event('blur', {{bubbles: true}}));
+                        const valorDepois = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
+                        return 'antes=' + valorAntes + ' | depois=' + valorDepois;
+                    }})()
+                """)
+                popup.wait_for_timeout(1500)
+                self._log(f"  Empresa: {resultado_empresa}")
+
+                # Verifica se realmente mudou (as vezes o Dealer reverte)
+                valor_atual = popup.evaluate("""
+                    (() => {
+                        const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
+                        return sel ? sel.value + ':' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?') : null;
+                    })()
+                """)
+                self._log(f"  Empresa verificacao: {valor_atual}")
+
+                # Se nao mudou, tenta de novo com o select_option nativo do Playwright
+                if valor_atual and EMPRESA_IGUATEMI_VALUE not in valor_atual:
+                    self._log(f"  Empresa nao mudou via JS, tentando select_option...")
+                    popup.locator("#TITULOMOV_EMPRESACOD_MOVIMENTO").select_option(value=EMPRESA_IGUATEMI_VALUE)
+                    popup.wait_for_timeout(1500)
             except Exception as e_emp:
                 self._log(f"  AVISO: nao alterou Empresa: {e_emp}")
             self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
