@@ -324,37 +324,58 @@ class AutomacaoBaixa:
             popup.wait_for_timeout(500)
             # 6. Empresa - sempre MANDARIM IGUATEMI (matriz), mesmo para Itabuna/Lauro
             try:
-                # Usa JavaScript direto pois select_option do Playwright nao estava funcionando
+                # Usa JavaScript + chamada direta ao gx.evt.onchange do GeneXus
                 resultado_empresa = popup.evaluate(f"""
                     (() => {{
                         const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
                         if (!sel) return 'nao_encontrado';
                         const valorAntes = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
                         sel.value = '{EMPRESA_IGUATEMI_VALUE}';
+                        // Chama o handler do GeneXus diretamente
+                        try {{
+                            if (window.gx && window.gx.evt && window.gx.evt.onchange) {{
+                                window.gx.evt.onchange(sel);
+                            }}
+                        }} catch(e) {{}}
                         sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                        sel.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        sel.dispatchEvent(new Event('blur', {{bubbles: true}}));
                         const valorDepois = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?';
                         return 'antes=' + valorAntes + ' | depois=' + valorDepois;
                     }})()
                 """)
-                popup.wait_for_timeout(1500)
+                popup.wait_for_timeout(2000)
                 self._log(f"  Empresa: {resultado_empresa}")
 
-                # Verifica se realmente mudou (as vezes o Dealer reverte)
-                valor_atual = popup.evaluate("""
+                # Aparece popup de confirmacao "Empresa do Titulo e diferente... Sim/Nao"
+                # Precisa clicar em SIM para confirmar
+                popup.evaluate("""
                     (() => {
-                        const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
-                        return sel ? sel.value + ':' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '?') : null;
+                        // Busca botoes Sim em todos os frames acessiveis
+                        function clicarSim(docRef) {
+                            let total = 0;
+                            try {
+                                const btns = docRef.querySelectorAll('button, input[type="button"]');
+                                for (const b of btns) {
+                                    const texto = (b.textContent || b.value || '').trim();
+                                    if (texto === 'Sim') {
+                                        try { b.click(); total++; } catch(e) {}
+                                    }
+                                }
+                                const subIframes = docRef.querySelectorAll('iframe');
+                                for (let i = 0; i < subIframes.length; i++) {
+                                    try {
+                                        if (subIframes[i].contentDocument) {
+                                            total += clicarSim(subIframes[i].contentDocument);
+                                        }
+                                    } catch(e) {}
+                                }
+                            } catch(e) {}
+                            return total;
+                        }
+                        return clicarSim(document);
                     })()
                 """)
-                self._log(f"  Empresa verificacao: {valor_atual}")
-
-                # Se nao mudou, tenta de novo com o select_option nativo do Playwright
-                if valor_atual and EMPRESA_IGUATEMI_VALUE not in valor_atual:
-                    self._log(f"  Empresa nao mudou via JS, tentando select_option...")
-                    popup.locator("#TITULOMOV_EMPRESACOD_MOVIMENTO").select_option(value=EMPRESA_IGUATEMI_VALUE)
-                    popup.wait_for_timeout(1500)
+                popup.wait_for_timeout(1500)
+                self._log(f"  Popup de confirmacao de Empresa: SIM clicado")
             except Exception as e_emp:
                 self._log(f"  AVISO: nao alterou Empresa: {e_emp}")
             self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
