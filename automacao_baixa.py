@@ -14,6 +14,7 @@ URL_DEALER = "https://workflow.grupoindiana.com.br/Portal/default.html"
 TIPO_CREDITO_VALUE = "64"       # RECEBIMENTO DE TÍTULO
 AGENTE_COBRADOR_VALUE = "55"    # CONTA MOVIMENTO FABRICA (3.06.60)
 TIPO_DOCUMENTO_VALUE = "2"      # AVISO DE LANCAMENTO
+EMPRESA_IGUATEMI_VALUE = "32"   # MANDARIM IGUATEMI (sempre matriz)
 HISTORICO_TEXTO = "Baixa Garantia"
 
 log = logging.getLogger("automacao")
@@ -321,6 +322,13 @@ class AutomacaoBaixa:
             popup.wait_for_timeout(200)
             valor_field.fill(valor_formatado)
             popup.wait_for_timeout(500)
+            # 6. Empresa - sempre MANDARIM IGUATEMI (matriz), mesmo para Itabuna/Lauro
+            try:
+                popup.locator("#TITULOMOV_EMPRESACOD_MOVIMENTO").select_option(value=EMPRESA_IGUATEMI_VALUE)
+                popup.wait_for_timeout(800)
+                self._log(f"  Empresa: MANDARIM IGUATEMI (matriz)")
+            except Exception as e_emp:
+                self._log(f"  AVISO: nao alterou Empresa: {e_emp}")
             self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
         except Exception as e:
             self._log(f"  ERRO formulario: {e}")
