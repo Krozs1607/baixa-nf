@@ -13,6 +13,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from flask import Flask, render_template_string, jsonify, request, send_file
 from automacao_baixa import AutomacaoBaixa
+from automacao_gaulesa import AutomacaoGaulesa
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB max upload
@@ -32,6 +33,7 @@ estado = {
 }
 
 automacao: AutomacaoBaixa = None
+automacao_gaulesa: AutomacaoGaulesa = None
 
 # Mapeamento loja -> arquivo Excel
 LOJAS = {
@@ -409,10 +411,19 @@ HTML_PAGE = """
     <h1>Automacao de Baixa NF</h1>
     <p class="subtitle">Dealer.net - Grupo Indiana</p>
 
+    <!-- TABS PRINCIPAIS -->
+    <div class="tabs" style="border-bottom:3px solid #e94560;">
+        <button class="tab active" onclick="switchMainTab('mandarim')" id="mainTab-mandarim" style="font-size:16px;">Mandarim</button>
+        <button class="tab" onclick="switchMainTab('gaulesa')" id="mainTab-gaulesa" style="font-size:16px;">Gaulesa</button>
+    </div>
+
+    <!-- ==================== MANDARIM ==================== -->
+    <div class="tab-content active" id="mainContent-mandarim" style="width:100%;">
+
     <div class="tabs">
-        <button class="tab active" onclick="switchTab('painel')">Painel de Controle</button>
-        <button class="tab" onclick="switchTab('relatorio')">Relatorio e Graficos</button>
-        <button class="tab" onclick="switchTab('analise')">Analise (sem baixar)</button>
+        <button class="tab active" onclick="switchTab('painel')" id="subTab-painel">Painel de Controle</button>
+        <button class="tab" onclick="switchTab('relatorio')" id="subTab-relatorio">Relatorio e Graficos</button>
+        <button class="tab" onclick="switchTab('analise')" id="subTab-analise">Analise (sem baixar)</button>
     </div>
 
     <!-- ABA 1: PAINEL -->
@@ -634,7 +645,93 @@ HTML_PAGE = """
 
     </div> <!-- /tab-analise -->
 
+    </div> <!-- /mainContent-mandarim -->
+
+    <!-- ==================== GAULESA ==================== -->
+    <div class="tab-content" id="mainContent-gaulesa" style="width:100%;">
+
+    <!-- PASSO 1: Upload Excel Gaulesa -->
+    <div class="card">
+        <h2><span class="step">1</span> Upload Excel Gaulesa</h2>
+        <div class="file-upload">
+            <label for="arquivoGaulesa" class="file-label">
+                <span id="arquivoLabelGaulesa">Clique para selecionar o Excel da Gaulesa</span>
+            </label>
+            <input type="file" id="arquivoGaulesa" accept=".xlsx,.xls" style="display:none;">
+        </div>
+        <div id="info-gaulesa" style="font-size:13px; color:#888; margin-bottom:16px;"></div>
+        <button class="btn btn-primary" id="btnConfigurarGaulesa" onclick="configurarGaulesa()">
+            Configurar Gaulesa
+        </button>
+    </div>
+
+    <!-- PASSO 2: Abrir Navegador -->
+    <div class="card" id="card-comecar-gaulesa" style="display:none;">
+        <h2><span class="step">2</span> Abrir Navegador</h2>
+        <div class="aviso">
+            Clique abaixo para abrir o navegador.<br>
+            Depois faca login, selecione <strong>GAULESA IGUATEMI</strong> e va em Titulo a Receber.
+        </div>
+        <button class="btn btn-success" id="btnComecarGaulesa" onclick="comecarGaulesa()">
+            Abrir Navegador
+        </button>
+    </div>
+
+    <!-- PASSO 3: Confirmar -->
+    <div class="card" id="card-confirma-gaulesa" style="display:none;">
+        <h2><span class="step">3</span> Iniciar Baixas Gaulesa</h2>
+        <div class="aviso" style="border-left-color: #0cca4a;">
+            Dealer detectado! Busca por <strong>CHASSI</strong> com match por <strong>VALOR</strong>.<br>
+            Verifique se a loja esta correta e clique para iniciar.
+        </div>
+        <button class="btn btn-success" id="btnIniciarGaulesa" onclick="iniciarGaulesa()" style="font-size:20px; padding:18px;">
+            INICIAR BAIXAS GAULESA
+        </button>
+    </div>
+
+    <!-- PASSO 4: Progresso -->
+    <div class="card card-full" id="card-progresso-gaulesa" style="display:none;">
+        <h2><span class="step">4</span> Progresso Gaulesa</h2>
+        <div class="nf-atual" id="nf-atual-gaulesa"></div>
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progressBarGaulesa"></div>
+        </div>
+        <div class="status-bar">
+            <div class="status-item total"><div class="number" id="stat-total-g">0</div><div class="label">TOTAL</div></div>
+            <div class="status-item ok"><div class="number" id="stat-sucesso-g">0</div><div class="label">SUCESSO</div></div>
+            <div class="status-item pago"><div class="number" id="stat-pago-g">0</div><div class="label">JA PAGAS</div></div>
+            <div class="status-item erro"><div class="number" id="stat-erro-g">0</div><div class="label">ERROS</div></div>
+        </div>
+        <div class="nf-table-container" id="tabelaContainerGaulesa">
+            <table class="nf-table">
+                <thead><tr>
+                    <th style="width:50px">#</th>
+                    <th>Chassi</th>
+                    <th>Valor Excel</th>
+                    <th>Status</th>
+                    <th>Detalhe</th>
+                </tr></thead>
+                <tbody id="tabelaBodyGaulesa"></tbody>
+            </table>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+            <button class="btn btn-primary" id="btnPausarG" onclick="pausarBaixas()" style="flex:1;">Pausar</button>
+            <button class="btn btn-danger" id="btnPararG" onclick="pararBaixas()" style="flex:1;">Parar</button>
+        </div>
+        <button class="btn btn-success" onclick="exportarExcel()" style="margin-top:10px; background:#217346;">
+            Exportar Relatorio em Excel
+        </button>
+    </div>
+
+    </div> <!-- /mainContent-gaulesa -->
+
     <script>
+        function switchMainTab(tabName) {
+            document.querySelectorAll('[id^="mainTab-"]').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('[id^="mainContent-"]').forEach(t => t.classList.remove('active'));
+            document.getElementById('mainTab-' + tabName).classList.add('active');
+            document.getElementById('mainContent-' + tabName).classList.add('active');
+        }
         let pieChart = null;
 
         function switchTab(tabName) {
@@ -776,7 +873,128 @@ HTML_PAGE = """
             if (document.getElementById('tab-analise').classList.contains('active')) {
                 atualizarTabelaAnalise();
             }
+            if (document.getElementById('mainContent-gaulesa').classList.contains('active')) {
+                atualizarProgressoGaulesa();
+            }
         }, 1500);
+
+        // ============================================================
+        // GAULESA
+        // ============================================================
+        document.getElementById('arquivoGaulesa').addEventListener('change', function() {
+            const label = document.getElementById('arquivoLabelGaulesa');
+            if (this.files && this.files[0]) {
+                label.textContent = '✓ ' + this.files[0].name;
+                this.previousElementSibling.classList.add('has-file');
+            }
+        });
+
+        async function configurarGaulesa() {
+            const arquivo = document.getElementById('arquivoGaulesa').files[0];
+            if (!arquivo) { alert('Selecione o arquivo Excel da Gaulesa!'); return; }
+            const btn = document.getElementById('btnConfigurarGaulesa');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            try {
+                const formData = new FormData();
+                formData.append('arquivo', arquivo);
+                const resp = await fetch('/api/configurar_gaulesa', {method: 'POST', body: formData});
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('card-comecar-gaulesa').style.display = 'block';
+                    btn.textContent = 'Configurado (' + data.total + ' chassis)';
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Configurar Gaulesa';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Configurar Gaulesa';
+            }
+        }
+
+        async function comecarGaulesa() {
+            const btn = document.getElementById('btnComecarGaulesa');
+            btn.disabled = true;
+            btn.textContent = 'Abrindo navegador...';
+            try {
+                const resp = await fetch('/api/comecar_gaulesa', {method: 'POST'});
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('stat-total-g').textContent = data.total;
+                    btn.textContent = 'Aguardando Dealer...';
+                    const check = setInterval(async () => {
+                        try {
+                            const r = await fetch('/api/status');
+                            const d = await r.json();
+                            if (d.dealer_pronto) {
+                                clearInterval(check);
+                                document.getElementById('card-confirma-gaulesa').style.display = 'block';
+                                btn.textContent = 'Dealer Detectado!';
+                            }
+                        } catch(e) {}
+                    }, 2000);
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Abrir Navegador';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Abrir Navegador';
+            }
+        }
+
+        async function iniciarGaulesa() {
+            const btn = document.getElementById('btnIniciarGaulesa');
+            btn.disabled = true;
+            btn.textContent = 'Iniciando...';
+            await fetch('/api/iniciar', {method: 'POST'});
+            document.getElementById('card-progresso-gaulesa').style.display = 'block';
+        }
+
+        async function atualizarProgressoGaulesa() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                const p = data.progresso;
+                const processadas = p.sucesso + p.pago + p.nao_encontrada + p.erro;
+
+                document.getElementById('stat-total-g').textContent = p.total;
+                document.getElementById('stat-sucesso-g').textContent = p.sucesso;
+                document.getElementById('stat-pago-g').textContent = p.pago;
+                document.getElementById('stat-erro-g').textContent = p.erro + p.nao_encontrada;
+
+                const pct = p.total > 0 ? (processadas / p.total * 100) : 0;
+                document.getElementById('progressBarGaulesa').style.width = pct + '%';
+
+                if (data.nf_atual && data.rodando) {
+                    document.getElementById('nf-atual-gaulesa').textContent =
+                        'Chassi: ' + data.nf_atual + ' (' + processadas + '/' + p.total + ')';
+                } else if (!data.rodando && processadas > 0) {
+                    document.getElementById('nf-atual-gaulesa').textContent =
+                        'CONCLUIDO! ' + processadas + '/' + p.total + ' chassis processados';
+                }
+
+                // Tabela
+                const tabela = data.tabela_nfs || [];
+                const tbody = document.getElementById('tabelaBodyGaulesa');
+                tbody.innerHTML = tabela.map((item, idx) => {
+                    const valor = Number(item.valor || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                    const badge = '<span class="badge badge-' + item.status + '">' + (badgeLabels[item.status] || item.status) + '</span>';
+                    return '<tr>' +
+                        '<td style="color:#555">' + (idx+1) + '</td>' +
+                        '<td style="font-weight:600;color:#ccc;font-size:11px">' + item.nf + '</td>' +
+                        '<td style="color:#0cca4a">' + valor + '</td>' +
+                        '<td>' + badge + '</td>' +
+                        '<td style="color:#888;font-size:12px">' + (item.mensagem || '') + '</td>' +
+                        '</tr>';
+                }).join('');
+            } catch(e) {}
+        }
 
         // ============================================================
         // ABA ANALISE
@@ -1489,6 +1707,60 @@ def api_parar():
         automacao.parar = True
         automacao.pausado = False
     return jsonify({"ok": True})
+
+
+@app.route("/api/configurar_gaulesa", methods=["POST"])
+def api_configurar_gaulesa():
+    global automacao_gaulesa, estado
+    arquivo_upload = request.files.get("arquivo") if request.content_type and "multipart" in request.content_type else None
+
+    if not arquivo_upload or not arquivo_upload.filename:
+        return jsonify({"ok": False, "erro": "Selecione o arquivo Excel da Gaulesa!"})
+
+    if not arquivo_upload.filename.lower().endswith((".xlsx", ".xls")):
+        return jsonify({"ok": False, "erro": "Arquivo deve ser .xlsx ou .xls"})
+
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    caminho = os.path.join(uploads_dir, "gaulesa.xlsx")
+    arquivo_upload.save(caminho)
+
+    estado["loja_selecionada"] = "gaulesa"
+    estado["log_mensagens"] = []
+    estado["rodando"] = False
+    estado["dealer_pronto"] = False
+    estado["inicio_confirmado"] = False
+    estado["browser_aberto"] = False
+    estado["tabela_nfs"] = []
+    estado["tabela_analise"] = []
+    estado["nf_atual"] = ""
+
+    automacao_gaulesa = AutomacaoGaulesa(caminho, estado)
+    total = automacao_gaulesa.carregar_notas()
+    estado["browser_aberto"] = True
+    return jsonify({"ok": True, "total": total})
+
+
+@app.route("/api/comecar_gaulesa", methods=["POST"])
+def api_comecar_gaulesa():
+    global automacao_gaulesa, estado
+    if automacao_gaulesa is None:
+        return jsonify({"ok": False, "erro": "Configure a Gaulesa primeiro!"})
+
+    if estado["rodando"]:
+        return jsonify({"ok": False, "erro": "Ja esta rodando!"})
+
+    total = len(automacao_gaulesa.notas)
+    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "erro": 0}
+    estado["tabela_nfs"] = []
+    estado["log_mensagens"] = []
+    estado["rodando"] = True
+    estado["dealer_pronto"] = False
+    estado["inicio_confirmado"] = False
+
+    thread = threading.Thread(target=automacao_gaulesa.executar_tudo, daemon=True)
+    thread.start()
+    return jsonify({"ok": True, "total": total})
 
 
 if __name__ == "__main__":

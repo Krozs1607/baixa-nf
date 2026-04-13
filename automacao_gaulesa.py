@@ -1,0 +1,484 @@
+"""
+Módulo de automação de baixa de NF para GAULESA no Dealer.net
+Busca por CHASSI e localiza a NF pelo VALOR correspondente.
+"""
+
+import time
+import logging
+import openpyxl
+from playwright.sync_api import sync_playwright
+
+# Configurações dos campos
+URL_DEALER = "https://workflow.grupoindiana.com.br/Portal/default.html"
+TIPO_CREDITO_VALUE = "64"       # RECEBIMENTO DE TÍTULO
+AGENTE_COBRADOR_VALUE = "55"    # CONTA MOVIMENTO FABRICA (3.06.60)
+TIPO_DOCUMENTO_VALUE = "2"      # AVISO DE LANCAMENTO
+EMPRESA_IGUATEMI_VALUE = "32"   # MANDARIM IGUATEMI (sempre matriz)
+HISTORICO_TEXTO = "Baixa Garantia"
+
+log = logging.getLogger("gaulesa")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+
+class AutomacaoGaulesa:
+    def __init__(self, caminho_excel: str, estado: dict):
+        self.caminho_excel = caminho_excel
+        self.estado = estado
+        self.notas = []
+        self.parar = False
+        self.pausado = False
+
+    def _log(self, msg: str):
+        log.info(msg)
+        self.estado["log_mensagens"].append(msg)
+
+    def carregar_notas(self) -> int:
+        wb = openpyxl.load_workbook(self.caminho_excel, read_only=True)
+        ws = wb.active
+        self.notas = []
+        for row in ws.iter_rows(min_row=2, values_only=False):
+            chassi = row[0].value   # Coluna A = Chassi
+            valor = row[1].value    # Coluna B = Valor Total
+            if chassi and valor:
+                self.notas.append({
+                    "chassi": str(chassi).strip(),
+                    "valor": float(valor),
+                })
+        wb.close()
+        self._log(f"Excel Gaulesa carregado: {len(self.notas)} chassis encontrados")
+        return len(self.notas)
+
+    def _get_main_frame(self, page):
+        for tentativa in range(20):
+            for frame in page.frames:
+                try:
+                    if frame.query_selector("#BTNCONSULTAR"):
+                        self._log(f"Frame encontrado: {frame.url[:80]}")
+                        return frame
+                except:
+                    pass
+            self._log(f"Tentativa {tentativa+1}/20 - aguardando frames...")
+            time.sleep(3)
+        raise Exception("Frame nao encontrado!")
+
+    def _get_popup_frame(self, main_frame, procurar_formulario=False, tentativas=5):
+        for t in range(tentativas):
+            for frame in main_frame.page.frames:
+                try:
+                    url = frame.url.lower()
+                    if "titulomov" in url:
+                        if procurar_formulario:
+                            if frame.query_selector("#TITULOMOV_TIPOCDCOD"):
+                                return frame
+                        else:
+                            return frame
+                except:
+                    pass
+            if procurar_formulario:
+                for frame in main_frame.page.frames:
+                    try:
+                        if frame.query_selector("#TITULOMOV_TIPOCDCOD"):
+                            return frame
+                    except:
+                        pass
+            time.sleep(2)
+        return None
+
+    def _expandir_filtro_avancado(self, main_frame):
+        try:
+            chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+            if chassi and chassi.is_visible():
+                return
+            main_frame.evaluate("""
+                const fs = document.getElementById('GROUPFILTROAVANCADO');
+                if (fs) {
+                    fs.style.display = 'block';
+                    fs.style.visibility = 'visible';
+                    fs.style.height = 'auto';
+                    fs.style.overflow = 'visible';
+                    let parent = fs.parentElement;
+                    while (parent) {
+                        parent.style.display = parent.style.display === 'none' ? 'block' : parent.style.display;
+                        parent.style.overflow = 'visible';
+                        parent = parent.parentElement;
+                    }
+                }
+            """)
+            main_frame.wait_for_timeout(1000)
+            chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+            if chassi and chassi.is_visible():
+                self._log("Filtro Avancado expandido")
+                return
+            self._log("AVISO: Expanda o Filtro Avancado manualmente!")
+            for i in range(20):
+                chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+                if chassi and chassi.is_visible():
+                    return
+                time.sleep(3)
+        except Exception as e:
+            self._log(f"Aviso filtro: {e}")
+
+    def _formatar_valor_br(self, valor: float) -> str:
+        """Formata valor para comparação com texto do Dealer. Ex: 1503.21 → '1.503,21'"""
+        return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _parse_valor_br(self, texto: str) -> float:
+        """Converte texto BR para float. Ex: '1.503,21' → 1503.21"""
+        try:
+            return float(texto.replace(".", "").replace(",", "."))
+        except:
+            return 0.0
+
+    def _encontrar_linha_por_valor(self, main_frame, valor_excel: float) -> int:
+        """Percorre linhas do grid e retorna o número da linha com valor correspondente. 0 se não achar."""
+        for r in range(1, 20):
+            idx = str(r).zfill(4)
+            try:
+                row = main_frame.locator(f"#GridContainerRow_{idx}")
+                if not row.is_visible(timeout=500):
+                    break
+
+                valor_span = main_frame.locator(f"#span_vGRID_TITULO_VALOR_{idx}")
+                status_span = main_frame.locator(f"#span_vGRID_TITULO_STATUS_{idx}")
+
+                valor_texto = valor_span.text_content(timeout=1000).strip()
+                status_texto = status_span.text_content(timeout=1000).strip()
+                valor_dealer = self._parse_valor_br(valor_texto)
+
+                # Compara valores (tolerância de 0.02 para arredondamento)
+                if abs(valor_dealer - valor_excel) < 0.02:
+                    if status_texto.lower() == "pago":
+                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH mas Status PAGO")
+                        continue
+                    self._log(f"    Linha {r}: Valor {valor_texto} MATCH! Status: {status_texto}")
+                    return r
+                else:
+                    self._log(f"    Linha {r}: Valor {valor_texto} (diferente de {self._formatar_valor_br(valor_excel)})")
+            except:
+                break
+        return 0
+
+    def _processar_chassi(self, main_frame, nota, indice, total):
+        chassi = nota["chassi"]
+        valor_excel = nota["valor"]
+        self.estado["nf_atual"] = chassi
+        self._log(f"[{indice}/{total}] Chassi: {chassi} | Valor Excel: {self._formatar_valor_br(valor_excel)}")
+
+        self._expandir_filtro_avancado(main_frame)
+
+        # PASSO 1: Preencher Chassi e consultar
+        try:
+            campo = main_frame.locator("#vTITULO_VEICULOCHASSI")
+            campo.click()
+            campo.fill("")
+            main_frame.wait_for_timeout(200)
+            campo.fill(chassi)
+            main_frame.wait_for_timeout(300)
+            main_frame.locator("#BTNCONSULTAR").click()
+            main_frame.wait_for_timeout(4000)
+        except Exception as e:
+            self._log(f"  ERRO consulta: {e}")
+            return "erro"
+
+        # PASSO 2: Verificar se encontrou algum resultado
+        try:
+            row = main_frame.locator("#GridContainerRow_0001")
+            if not row.is_visible(timeout=3000):
+                self._log(f"  Chassi {chassi} NAO ENCONTRADO no Dealer")
+                return "nao_encontrada"
+        except:
+            self._log(f"  Chassi {chassi} NAO ENCONTRADO")
+            return "nao_encontrada"
+
+        # PASSO 3: Percorrer linhas e encontrar a que tem valor igual ao Excel
+        self._log(f"  Buscando NF com valor {self._formatar_valor_br(valor_excel)}...")
+        linha_match = self._encontrar_linha_por_valor(main_frame, valor_excel)
+
+        if linha_match == 0:
+            self._log(f"  Nenhuma NF com valor {self._formatar_valor_br(valor_excel)} encontrada - pulando")
+            return "nao_encontrada"
+
+        idx = str(linha_match).zfill(4)
+
+        # Captura valor total da nota
+        try:
+            valor_total = main_frame.locator(f"#span_vGRID_TITULO_VALOR_{idx}").text_content(timeout=2000).strip()
+            if self.estado["tabela_nfs"]:
+                self.estado["tabela_nfs"][-1]["valor_total_nota"] = valor_total
+        except:
+            pass
+
+        # PASSO 4: Clicar Movimento na linha correta
+        try:
+            main_frame.locator(f"#vBMPMOVIMENTO_{idx}").click()
+            main_frame.wait_for_timeout(3000)
+        except Exception as e:
+            self._log(f"  ERRO Movimento: {e}")
+            return "erro"
+
+        # PASSO 5: Clicar INSERT
+        try:
+            popup = self._get_popup_frame(main_frame, tentativas=8)
+            if not popup:
+                self._log("  ERRO: popup nao abriu")
+                return "erro"
+            insert_btn = popup.locator("#INSERT")
+            if not insert_btn.is_visible(timeout=5000):
+                self._log(f"  Chassi {chassi} - sem botao + (ja baixada)")
+                try:
+                    popup.locator("#FECHAR").click()
+                    main_frame.wait_for_timeout(2000)
+                except:
+                    pass
+                return "pago"
+            insert_btn.click()
+            main_frame.wait_for_timeout(4000)
+        except Exception as e:
+            self._log(f"  ERRO INSERT: {e}")
+            return "erro"
+
+        # PASSO 6: Preencher formulário
+        try:
+            popup = self._get_popup_frame(main_frame, procurar_formulario=True, tentativas=8)
+            if not popup:
+                self._log("  ERRO: formulario nao encontrado")
+                return "erro"
+
+            # 1. Tipo Crédito/Débito
+            popup.locator("#TITULOMOV_TIPOCDCOD").select_option(value=TIPO_CREDITO_VALUE)
+            popup.wait_for_timeout(1500)
+            # 2. Tipo de Documento
+            popup.locator("#TITULOMOV_TIPODOCUMENTOCOD").select_option(value=TIPO_DOCUMENTO_VALUE)
+            popup.wait_for_timeout(500)
+            # Clica no Histórico para forçar blur
+            popup.locator("#TITULOMOV_HISTORICO").click()
+            popup.wait_for_timeout(2000)
+            # 3. Agente Cobrador
+            popup.locator("#TITULOMOV_AGENTECOBRADORCOD").select_option(value=AGENTE_COBRADOR_VALUE)
+            popup.wait_for_timeout(1000)
+            # 4. Histórico
+            texto_historico = f"Baixa Garantia Chassi: {chassi}"
+            popup.evaluate(f"""
+                (() => {{
+                    const h = document.getElementById('TITULOMOV_HISTORICO');
+                    h.value = '{texto_historico}';
+                    h.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    h.dispatchEvent(new Event('input', {{bubbles: true}}));
+                }})()
+            """)
+            popup.wait_for_timeout(500)
+            # 5. Valor
+            valor_formatado = f"{valor_excel:.2f}".replace(".", ",")
+            valor_field = popup.locator("#TITULOMOV_VALOR")
+            valor_field.click()
+            valor_field.fill("")
+            popup.wait_for_timeout(200)
+            valor_field.fill(valor_formatado)
+            popup.wait_for_timeout(500)
+            # 6. Empresa → MANDARIM IGUATEMI
+            try:
+                popup.evaluate(f"""
+                    (() => {{
+                        const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
+                        if (!sel) return;
+                        sel.value = '{EMPRESA_IGUATEMI_VALUE}';
+                        try {{
+                            if (window.gx && window.gx.evt && window.gx.evt.onchange) {{
+                                window.gx.evt.onchange(sel);
+                            }}
+                        }} catch(e) {{}}
+                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    }})()
+                """)
+                popup.wait_for_timeout(2500)
+                # Clica SIM no popup de confirmação
+                main_frame.page.evaluate("""
+                    (() => {
+                        function clicarSim(docRef) {
+                            let total = 0;
+                            try {
+                                const btns = docRef.querySelectorAll('button, input[type="button"]');
+                                for (const b of btns) {
+                                    if ((b.textContent || b.value || '').trim() === 'Sim') {
+                                        try { b.click(); total++; } catch(e) {}
+                                    }
+                                }
+                                const subIframes = docRef.querySelectorAll('iframe');
+                                for (let i = 0; i < subIframes.length; i++) {
+                                    try {
+                                        if (subIframes[i].contentDocument) {
+                                            total += clicarSim(subIframes[i].contentDocument);
+                                        }
+                                    } catch(e) {}
+                                }
+                            } catch(e) {}
+                            return total;
+                        }
+                        return clicarSim(document);
+                    })()
+                """)
+                popup.wait_for_timeout(2000)
+                self._log(f"  Empresa: MANDARIM IGUATEMI | SIM clicado")
+            except Exception as e_emp:
+                self._log(f"  AVISO Empresa: {e_emp}")
+
+            self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
+        except Exception as e:
+            self._log(f"  ERRO formulario: {e}")
+            return "erro"
+
+        # PASSO 7: Confirmar
+        try:
+            popup = self._get_popup_frame(main_frame, procurar_formulario=True, tentativas=3)
+            if not popup:
+                self._log("  ERRO: popup perdido antes de confirmar")
+                return "erro"
+            popup.locator("#TRN_ENTER").click()
+            main_frame.wait_for_timeout(5000)
+            self._log(f"  >> Chassi {chassi} CONFIRMADA!")
+        except Exception as e:
+            self._log(f"  ERRO confirmar: {e}")
+            return "erro"
+
+        # PASSO 8: Fechar popup
+        try:
+            main_frame.wait_for_timeout(2000)
+            popup = self._get_popup_frame(main_frame, tentativas=5)
+            if popup:
+                fechar = popup.locator("#FECHAR")
+                if fechar.is_visible(timeout=5000):
+                    fechar.click()
+                    main_frame.wait_for_timeout(2000)
+        except:
+            try:
+                for frame in main_frame.page.frames:
+                    try:
+                        btn = frame.query_selector("#FECHAR")
+                        if btn and btn.is_visible():
+                            btn.click()
+                            main_frame.wait_for_timeout(2000)
+                            break
+                    except:
+                        pass
+            except:
+                pass
+
+        return "sucesso"
+
+    def executar_tudo(self):
+        """Abre browser, espera login, e processa todas as notas Gaulesa."""
+        MENSAGENS = {
+            "sucesso": "Baixada com sucesso",
+            "pago": "Ja estava paga - pulou",
+            "nao_encontrada": "Chassi/valor nao encontrado",
+            "erro": "Erro ao processar",
+        }
+        total = len(self.notas)
+        erros_seguidos = 0
+
+        with sync_playwright() as pw:
+            self._log("Abrindo navegador GAULESA...")
+            browser = pw.chromium.launch(headless=False, slow_mo=200, args=["--start-maximized"])
+            context = browser.new_context(no_viewport=True)
+            page = context.new_page()
+            page.set_default_timeout(15000)
+
+            self._log("Navegando para Dealer.net...")
+            page.goto(URL_DEALER, wait_until="networkidle", timeout=60000)
+            self._log("FACA LOGIN, selecione GAULESA IGUATEMI e va em Titulo a Receber.")
+
+            main_frame = None
+            for tentativa in range(120):
+                if self.parar:
+                    browser.close()
+                    self.estado["rodando"] = False
+                    return
+                for frame in page.frames:
+                    try:
+                        if frame.query_selector("#BTNCONSULTAR"):
+                            main_frame = frame
+                            break
+                    except:
+                        pass
+                if main_frame:
+                    self._log("Dealer pronto!")
+                    break
+                if tentativa % 10 == 0 and tentativa > 0:
+                    self._log(f"Aguardando... ({tentativa*3}s)")
+                time.sleep(3)
+
+            if not main_frame:
+                self._log("ERRO: Timeout aguardando login.")
+                browser.close()
+                self.estado["rodando"] = False
+                return
+
+            self.estado["dealer_pronto"] = True
+            self._log("DEALER PRONTO! Configure Filtro de Selecao e clique INICIAR.")
+
+            while not self.estado.get("inicio_confirmado", False):
+                if self.parar:
+                    browser.close()
+                    self.estado["rodando"] = False
+                    return
+                time.sleep(1)
+
+            self._log("Iniciando baixas Gaulesa...")
+            self._expandir_filtro_avancado(main_frame)
+
+            for i, nota in enumerate(self.notas, start=1):
+                if self.parar:
+                    self._log("Automacao PARADA")
+                    break
+                while self.pausado and not self.parar:
+                    time.sleep(0.5)
+                if self.parar:
+                    break
+
+                entrada = {
+                    "cnpj": "",
+                    "nf": nota["chassi"],
+                    "nf_original": nota["chassi"],
+                    "valor": nota["valor"],
+                    "valor_total_nota": "",
+                    "status": "processando",
+                    "mensagem": "Baixando...",
+                }
+                self.estado["tabela_nfs"].append(entrada)
+
+                resultado = self._processar_chassi(main_frame, nota, i, total)
+                self.estado["progresso"][resultado] = self.estado["progresso"].get(resultado, 0) + 1
+                entrada["status"] = resultado
+                entrada["mensagem"] = MENSAGENS.get(resultado, resultado)
+
+                if resultado == "erro":
+                    erros_seguidos += 1
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(1000)
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(1000)
+                    except:
+                        pass
+                    if erros_seguidos >= 5:
+                        self._log("MUITOS ERROS (5)! Parando.")
+                        break
+                else:
+                    erros_seguidos = 0
+
+                if i % 10 == 0:
+                    p = self.estado["progresso"]
+                    self._log(f"--- PROGRESSO {i}/{total} | OK:{p['sucesso']} Pago:{p['pago']} Erro:{p['erro']} ---")
+
+            p = self.estado["progresso"]
+            self._log("=" * 50)
+            self._log(f"GAULESA FINALIZADA! Sucesso:{p['sucesso']} | Pagas:{p['pago']} | Erros:{p['erro']} | Nao encontradas:{p['nao_encontrada']}")
+            self._log("=" * 50)
+
+            try:
+                while not self.parar:
+                    time.sleep(1)
+            except:
+                pass
+            browser.close()
+            self.estado["rodando"] = False
