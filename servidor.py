@@ -715,8 +715,8 @@ HTML_PAGE = """
             </table>
         </div>
         <div style="display:flex; gap:10px; margin-top:10px;">
-            <button class="btn btn-primary" id="btnPausarG" onclick="pausarBaixas()" style="flex:1;">Pausar</button>
-            <button class="btn btn-danger" id="btnPararG" onclick="pararBaixas()" style="flex:1;">Parar</button>
+            <button class="btn btn-primary" id="btnPausarG" onclick="pausarGaulesa()" style="flex:1;">Pausar</button>
+            <button class="btn btn-danger" id="btnPararG" onclick="pararGaulesa()" style="flex:1;">Parar</button>
         </div>
         <button class="btn btn-success" onclick="exportarExcel()" style="margin-top:10px; background:#217346;">
             Exportar Relatorio em Excel
@@ -954,6 +954,27 @@ HTML_PAGE = """
             btn.textContent = 'Iniciando...';
             await fetch('/api/iniciar', {method: 'POST'});
             document.getElementById('card-progresso-gaulesa').style.display = 'block';
+        }
+
+        let pausadoG = false;
+        async function pausarGaulesa() {
+            const btn = document.getElementById('btnPausarG');
+            if (!pausadoG) {
+                await fetch('/api/pausar', {method: 'POST'});
+                pausadoG = true;
+                btn.textContent = 'Recomecar';
+                btn.className = 'btn btn-success';
+                btn.style.flex = '1';
+            } else {
+                await fetch('/api/recomecar', {method: 'POST'});
+                pausadoG = false;
+                btn.textContent = 'Pausar';
+                btn.className = 'btn btn-primary';
+                btn.style.flex = '1';
+            }
+        }
+        async function pararGaulesa() {
+            await fetch('/api/parar', {method: 'POST'});
         }
 
         async function atualizarProgressoGaulesa() {
@@ -1608,6 +1629,8 @@ def api_iniciar():
 def api_pausar():
     if automacao:
         automacao.pausado = True
+    if automacao_gaulesa:
+        automacao_gaulesa.pausado = True
     return jsonify({"ok": True})
 
 
@@ -1615,6 +1638,8 @@ def api_pausar():
 def api_recomecar():
     if automacao:
         automacao.pausado = False
+    if automacao_gaulesa:
+        automacao_gaulesa.pausado = False
     return jsonify({"ok": True})
 
 
@@ -1706,6 +1731,9 @@ def api_parar():
     if automacao:
         automacao.parar = True
         automacao.pausado = False
+    if automacao_gaulesa:
+        automacao_gaulesa.parar = True
+        automacao_gaulesa.pausado = False
     return jsonify({"ok": True})
 
 

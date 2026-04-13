@@ -129,8 +129,15 @@ class AutomacaoGaulesa:
         except:
             return 0.0
 
-    def _encontrar_linha_por_valor(self, main_frame, valor_excel: float) -> int:
-        """Percorre linhas do grid e retorna o número da linha com valor correspondente. 0 se não achar."""
+    def _encontrar_linha_por_valor(self, main_frame, valor_excel: float):
+        """
+        Percorre linhas do grid e compara o VALOR com o valor do Excel.
+        Retorna (numero_linha, status):
+          - (N, 'match') → linha N tem valor igual e status != Pago
+          - (0, 'pago') → encontrou valor igual mas todas Pagas
+          - (0, 'nao_encontrada') → nenhuma linha tem valor igual
+        """
+        encontrou_pago = False
         for r in range(1, 20):
             idx = str(r).zfill(4)
             try:
@@ -140,23 +147,29 @@ class AutomacaoGaulesa:
 
                 valor_span = main_frame.locator(f"#span_vGRID_TITULO_VALOR_{idx}")
                 status_span = main_frame.locator(f"#span_vGRID_TITULO_STATUS_{idx}")
+                saldo_span = main_frame.locator(f"#span_vGRID_TITULO_SALDO_{idx}")
 
                 valor_texto = valor_span.text_content(timeout=1000).strip()
                 status_texto = status_span.text_content(timeout=1000).strip()
+                saldo_texto = saldo_span.text_content(timeout=1000).strip()
                 valor_dealer = self._parse_valor_br(valor_texto)
 
-                # Compara valores (tolerância de 0.02 para arredondamento)
+                # Compara VALOR com valor do Excel (tolerância de 0.02)
                 if abs(valor_dealer - valor_excel) < 0.02:
                     if status_texto.lower() == "pago":
-                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH mas Status PAGO")
+                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH | Saldo {saldo_texto} | Status PAGO")
+                        encontrou_pago = True
                         continue
-                    self._log(f"    Linha {r}: Valor {valor_texto} MATCH! Status: {status_texto}")
-                    return r
+                    self._log(f"    Linha {r}: Valor {valor_texto} MATCH! | Saldo {saldo_texto} | Status: {status_texto}")
+                    return r, "match"
                 else:
-                    self._log(f"    Linha {r}: Valor {valor_texto} (diferente de {self._formatar_valor_br(valor_excel)})")
+                    self._log(f"    Linha {r}: Valor {valor_texto} | Saldo {saldo_texto} | Status {status_texto} (diferente)")
             except:
                 break
-        return 0
+
+        if encontrou_pago:
+            return 0, "pago"
+        return 0, "nao_encontrada"
 
     def _processar_chassi(self, main_frame, nota, indice, total):
         chassi = nota["chassi"]
@@ -192,9 +205,13 @@ class AutomacaoGaulesa:
 
         # PASSO 3: Percorrer linhas e encontrar a que tem valor igual ao Excel
         self._log(f"  Buscando NF com valor {self._formatar_valor_br(valor_excel)}...")
-        linha_match = self._encontrar_linha_por_valor(main_frame, valor_excel)
+        linha_match, match_status = self._encontrar_linha_por_valor(main_frame, valor_excel)
 
-        if linha_match == 0:
+        if match_status == "pago":
+            self._log(f"  Valor {self._formatar_valor_br(valor_excel)} encontrado mas JA PAGO")
+            return "pago"
+
+        if match_status == "nao_encontrada":
             self._log(f"  Nenhuma NF com valor {self._formatar_valor_br(valor_excel)} encontrada - pulando")
             return "nao_encontrada"
 
