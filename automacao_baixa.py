@@ -37,9 +37,12 @@ class AutomacaoBaixa:
     def _formatar_nf(self, nf_numero: str) -> str:
         """Formata o número da NF. Para Itabuna e Lauro: 15 dígitos com prefixo 2026."""
         if self.loja_key in ("mandarim_itabuna", "mandarim_lauro"):
-            # Formato: 2026 + zeros + NF = 15 dígitos total
-            return "2026" + nf_numero.zfill(11)  # 4 + 11 = 15 dígitos
+            return "2026" + nf_numero.zfill(11)
         return nf_numero
+
+    def _formatar_nf_fallback(self, nf_numero: str) -> str:
+        """Formato alternativo com prefixo 2025 (notas do ano anterior)."""
+        return "2025" + nf_numero.zfill(11)
 
     def _formatar_valor(self, valor: float) -> str:
         """Converte valor do Excel (negativo) para formato brasileiro positivo. Ex: -2167.20 → '2167,20'"""
@@ -210,32 +213,51 @@ class AutomacaoBaixa:
         # Garante que o Filtro Avançado esteja expandido antes de cada NF
         self._expandir_filtro_avancado(main_frame)
 
-        try:
-            nfse = main_frame.locator("#vTITULO_NOTAFISCALNRONFSE")
-            nfse.click()
-            nfse.fill("")
-            main_frame.wait_for_timeout(200)
-            nfse.fill(nf)
-            main_frame.wait_for_timeout(300)
-        except Exception as e:
-            self._log(f"  ERRO NFS-e: {e}")
-            return "erro"
+        # Tenta buscar a NF (para Itabuna/Lauro, tenta 2026 primeiro, depois 2025)
+        nf_buscar = nf
+        encontrou = False
 
-        try:
-            main_frame.locator("#BTNCONSULTAR").click()
-            main_frame.wait_for_timeout(4000)
-        except Exception as e:
-            self._log(f"  ERRO consultar: {e}")
-            return "erro"
+        for tentativa_nf in range(2):
+            try:
+                nfse = main_frame.locator("#vTITULO_NOTAFISCALNRONFSE")
+                nfse.click()
+                nfse.fill("")
+                main_frame.wait_for_timeout(200)
+                nfse.fill(nf_buscar)
+                main_frame.wait_for_timeout(300)
+            except Exception as e:
+                self._log(f"  ERRO NFS-e: {e}")
+                return "erro"
 
-        try:
-            row = main_frame.locator("#GridContainerRow_0001")
-            if not row.is_visible(timeout=3000):
-                self._log(f"  NF {nf} NAO ENCONTRADA")
-                return "nao_encontrada"
-        except:
-            self._log(f"  NF {nf} NAO ENCONTRADA")
+            try:
+                main_frame.locator("#BTNCONSULTAR").click()
+                main_frame.wait_for_timeout(4000)
+            except Exception as e:
+                self._log(f"  ERRO consultar: {e}")
+                return "erro"
+
+            try:
+                row = main_frame.locator("#GridContainerRow_0001")
+                if row.is_visible(timeout=3000):
+                    encontrou = True
+                    break
+            except:
+                pass
+
+            # Se não encontrou e é Itabuna/Lauro, tenta com 2025
+            if not encontrou and tentativa_nf == 0 and self.loja_key in ("mandarim_itabuna", "mandarim_lauro"):
+                nf_buscar = self._formatar_nf_fallback(nota["nf_original"])
+                self._log(f"  NF {nf} nao encontrada com 2026, tentando 2025: {nf_buscar}")
+                self._expandir_filtro_avancado(main_frame)
+            else:
+                break
+
+        if not encontrou:
+            self._log(f"  NF {nf} NAO ENCONTRADA (tentou 2026 e 2025)")
             return "nao_encontrada"
+
+        if nf_buscar != nf:
+            self._log(f"  NF encontrada com prefixo 2025: {nf_buscar}")
 
         # Captura o Valor Total da Nota direto do grid do Dealer (ANTES do check de Pago)
         try:
@@ -446,29 +468,45 @@ class AutomacaoBaixa:
 
         self._expandir_filtro_avancado(main_frame)
 
-        # Preenche NFS-e e consulta
-        try:
-            nfse = main_frame.locator("#vTITULO_NOTAFISCALNRONFSE")
-            nfse.click()
-            nfse.fill("")
-            main_frame.wait_for_timeout(200)
-            nfse.fill(nf)
-            main_frame.wait_for_timeout(300)
-            main_frame.locator("#BTNCONSULTAR").click()
-            main_frame.wait_for_timeout(3500)
-        except Exception as e:
-            self._log(f"  ERRO consultar: {e}")
-            return {"encontrada": False, "erro": str(e)}
+        # Preenche NFS-e e consulta (para Itabuna/Lauro, tenta 2026 depois 2025)
+        nf_buscar = nf
+        encontrou = False
 
-        # Verifica se encontrou
-        try:
-            row = main_frame.locator("#GridContainerRow_0001")
-            if not row.is_visible(timeout=3000):
-                self._log(f"  NF {nf} NAO ENCONTRADA")
-                return {"encontrada": False}
-        except:
-            self._log(f"  NF {nf} NAO ENCONTRADA")
+        for tentativa_nf in range(2):
+            try:
+                nfse = main_frame.locator("#vTITULO_NOTAFISCALNRONFSE")
+                nfse.click()
+                nfse.fill("")
+                main_frame.wait_for_timeout(200)
+                nfse.fill(nf_buscar)
+                main_frame.wait_for_timeout(300)
+                main_frame.locator("#BTNCONSULTAR").click()
+                main_frame.wait_for_timeout(3500)
+            except Exception as e:
+                self._log(f"  ERRO consultar: {e}")
+                return {"encontrada": False, "erro": str(e)}
+
+            try:
+                row = main_frame.locator("#GridContainerRow_0001")
+                if row.is_visible(timeout=3000):
+                    encontrou = True
+                    break
+            except:
+                pass
+
+            if not encontrou and tentativa_nf == 0 and self.loja_key in ("mandarim_itabuna", "mandarim_lauro"):
+                nf_buscar = self._formatar_nf_fallback(nota["nf_original"])
+                self._log(f"  NF {nf} nao encontrada com 2026, tentando 2025: {nf_buscar}")
+                self._expandir_filtro_avancado(main_frame)
+            else:
+                break
+
+        if not encontrou:
+            self._log(f"  NF {nf} NAO ENCONTRADA (tentou 2026 e 2025)")
             return {"encontrada": False}
+
+        if nf_buscar != nf:
+            self._log(f"  NF encontrada com prefixo 2025: {nf_buscar}")
 
         # Extrai Valor Total e Saldo
         resultado = {"encontrada": True}
