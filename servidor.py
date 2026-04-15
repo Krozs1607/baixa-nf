@@ -14,6 +14,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from flask import Flask, render_template_string, jsonify, request, send_file
 from automacao_baixa import AutomacaoBaixa
 from automacao_gaulesa import AutomacaoGaulesa
+from automacao_cancelamento import AutomacaoCancelamento
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB max upload
@@ -34,6 +35,7 @@ estado = {
 
 automacao: AutomacaoBaixa = None
 automacao_gaulesa: AutomacaoGaulesa = None
+automacao_cancel: AutomacaoCancelamento = None
 
 # Mapeamento loja -> arquivo Excel
 LOJAS = {
@@ -724,6 +726,55 @@ HTML_PAGE = """
         </button>
     </div>
 
+    <!-- Cancelamento Gaulesa -->
+    <div class="card" style="border-color:#dc3545;">
+        <h2 style="color:#dc3545;">Cancelar Notas Gaulesa</h2>
+        <div class="aviso" style="border-left-color:#dc3545;">
+            Use para cancelar baixas feitas incorretamente.<br>
+            Busca por Chassi, encontra a nota pelo Valor e cancela com motivo "Erro".
+        </div>
+        <div class="file-upload">
+            <label for="arquivoCancelar" class="file-label">
+                <span id="arquivoLabelCancelar">Clique para selecionar o Excel para cancelar</span>
+            </label>
+            <input type="file" id="arquivoCancelar" accept=".xlsx,.xls" style="display:none;">
+        </div>
+        <button class="btn btn-danger" id="btnConfigurarCancelar" onclick="configurarCancelamento()" style="margin-top:10px;">
+            Configurar Cancelamento
+        </button>
+        <div id="card-comecar-cancelar" style="display:none; margin-top:16px;">
+            <button class="btn btn-danger" id="btnComecarCancelar" onclick="comecarCancelamento()" style="font-size:18px; padding:16px;">
+                Abrir Navegador para Cancelamento
+            </button>
+        </div>
+        <div id="card-confirma-cancelar" style="display:none; margin-top:16px;">
+            <div class="aviso" style="border-left-color:#dc3545;">
+                Dealer detectado! Configure a loja e clique para iniciar o cancelamento.
+            </div>
+            <button class="btn btn-danger" id="btnIniciarCancelar" onclick="iniciarCancelamento()" style="font-size:20px; padding:18px;">
+                INICIAR CANCELAMENTO
+            </button>
+        </div>
+        <div id="card-progresso-cancelar" style="display:none; margin-top:16px;">
+            <div class="nf-atual" id="nf-atual-cancelar"></div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBarCancelar" style="background:linear-gradient(90deg,#dc3545,#ff8500);"></div>
+            </div>
+            <div class="nf-table-container" id="tabelaContainerCancelar">
+                <table class="nf-table">
+                    <thead><tr>
+                        <th>#</th><th>Chassi</th><th>Valor</th><th>Status</th><th>Detalhe</th>
+                    </tr></thead>
+                    <tbody id="tabelaBodyCancelar"></tbody>
+                </table>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:10px;">
+                <button class="btn btn-primary" id="btnPausarCancel" onclick="pausarBaixas()" style="flex:1;">Pausar</button>
+                <button class="btn btn-danger" id="btnPararCancel" onclick="pararBaixas()" style="flex:1;">Parar</button>
+            </div>
+        </div>
+    </div>
+
     </div> <!-- /mainContent-gaulesa -->
 
     <script>
@@ -876,6 +927,7 @@ HTML_PAGE = """
             }
             if (document.getElementById('mainContent-gaulesa').classList.contains('active')) {
                 atualizarProgressoGaulesa();
+                atualizarProgressoCancelamento();
             }
         }, 1500);
 
@@ -976,6 +1028,107 @@ HTML_PAGE = """
         }
         async function pararGaulesa() {
             await fetch('/api/parar', {method: 'POST'});
+        }
+
+        // ============================================================
+        // CANCELAMENTO GAULESA
+        // ============================================================
+        document.getElementById('arquivoCancelar').addEventListener('change', function() {
+            const label = document.getElementById('arquivoLabelCancelar');
+            if (this.files && this.files[0]) {
+                label.textContent = '✓ ' + this.files[0].name;
+                this.previousElementSibling.classList.add('has-file');
+            }
+        });
+
+        async function atualizarProgressoCancelamento() {
+            const container = document.getElementById('card-progresso-cancelar');
+            if (container.style.display === 'none') return;
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                const p = data.progresso;
+                const processadas = p.sucesso + p.nao_encontrada + p.erro;
+                const pct = p.total > 0 ? (processadas / p.total * 100) : 0;
+                document.getElementById('progressBarCancelar').style.width = pct + '%';
+                if (data.nf_atual && data.rodando) {
+                    document.getElementById('nf-atual-cancelar').textContent = 'Cancelando: ' + data.nf_atual + ' (' + processadas + '/' + p.total + ')';
+                } else if (!data.rodando && processadas > 0) {
+                    document.getElementById('nf-atual-cancelar').textContent = 'CONCLUIDO! ' + processadas + '/' + p.total;
+                }
+                const tabela = data.tabela_nfs || [];
+                document.getElementById('tabelaBodyCancelar').innerHTML = tabela.map((item, idx) => {
+                    const valor = Number(item.valor || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                    const badge = '<span class="badge badge-' + item.status + '">' + (badgeLabels[item.status] || item.status) + '</span>';
+                    return '<tr><td>' + (idx+1) + '</td><td style="font-size:11px;color:#ccc">' + item.nf + '</td><td style="color:#dc3545">' + valor + '</td><td>' + badge + '</td><td style="color:#888;font-size:12px">' + (item.mensagem||'') + '</td></tr>';
+                }).join('');
+            } catch(e) {}
+        }
+
+        async function configurarCancelamento() {
+            const arquivo = document.getElementById('arquivoCancelar').files[0];
+            if (!arquivo) { alert('Selecione o Excel!'); return; }
+            const btn = document.getElementById('btnConfigurarCancelar');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            try {
+                const formData = new FormData();
+                formData.append('arquivo', arquivo);
+                const resp = await fetch('/api/configurar_cancelamento', {method: 'POST', body: formData});
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('card-comecar-cancelar').style.display = 'block';
+                    btn.textContent = 'Configurado (' + data.total + ' para cancelar)';
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Configurar Cancelamento';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Configurar Cancelamento';
+            }
+        }
+
+        async function comecarCancelamento() {
+            const btn = document.getElementById('btnComecarCancelar');
+            btn.disabled = true;
+            btn.textContent = 'Abrindo navegador...';
+            try {
+                const resp = await fetch('/api/comecar_cancelamento', {method: 'POST'});
+                const data = await resp.json();
+                if (data.ok) {
+                    btn.textContent = 'Aguardando Dealer...';
+                    const check = setInterval(async () => {
+                        try {
+                            const r = await fetch('/api/status');
+                            const d = await r.json();
+                            if (d.dealer_pronto) {
+                                clearInterval(check);
+                                document.getElementById('card-confirma-cancelar').style.display = 'block';
+                                btn.textContent = 'Dealer Detectado!';
+                            }
+                        } catch(e) {}
+                    }, 2000);
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Abrir Navegador para Cancelamento';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Abrir Navegador para Cancelamento';
+            }
+        }
+
+        async function iniciarCancelamento() {
+            const btn = document.getElementById('btnIniciarCancelar');
+            btn.disabled = true;
+            btn.textContent = 'Cancelando...';
+            await fetch('/api/iniciar', {method: 'POST'});
+            document.getElementById('card-progresso-cancelar').style.display = 'block';
         }
 
         async function atualizarProgressoGaulesa() {
@@ -1633,6 +1786,8 @@ def api_pausar():
         automacao.pausado = True
     if automacao_gaulesa:
         automacao_gaulesa.pausado = True
+    if automacao_cancel:
+        automacao_cancel.pausado = True
     return jsonify({"ok": True})
 
 
@@ -1642,6 +1797,8 @@ def api_recomecar():
         automacao.pausado = False
     if automacao_gaulesa:
         automacao_gaulesa.pausado = False
+    if automacao_cancel:
+        automacao_cancel.pausado = False
     return jsonify({"ok": True})
 
 
@@ -1736,6 +1893,9 @@ def api_parar():
     if automacao_gaulesa:
         automacao_gaulesa.parar = True
         automacao_gaulesa.pausado = False
+    if automacao_cancel:
+        automacao_cancel.parar = True
+        automacao_cancel.pausado = False
     return jsonify({"ok": True})
 
 
@@ -1768,6 +1928,47 @@ def api_configurar_gaulesa():
     automacao_gaulesa = AutomacaoGaulesa(caminho, estado)
     total = automacao_gaulesa.carregar_notas()
     estado["browser_aberto"] = True
+    return jsonify({"ok": True, "total": total})
+
+
+@app.route("/api/configurar_cancelamento", methods=["POST"])
+def api_configurar_cancelamento():
+    global automacao_cancel, estado
+    arquivo_upload = request.files.get("arquivo") if request.content_type and "multipart" in request.content_type else None
+    if not arquivo_upload or not arquivo_upload.filename:
+        return jsonify({"ok": False, "erro": "Selecione o arquivo Excel!"})
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    caminho = os.path.join(uploads_dir, "cancelamento_gaulesa.xlsx")
+    arquivo_upload.save(caminho)
+    estado["loja_selecionada"] = "cancelamento_gaulesa"
+    estado["log_mensagens"] = []
+    estado["rodando"] = False
+    estado["dealer_pronto"] = False
+    estado["inicio_confirmado"] = False
+    estado["tabela_nfs"] = []
+    estado["nf_atual"] = ""
+    automacao_cancel = AutomacaoCancelamento(caminho, estado)
+    total = automacao_cancel.carregar_notas()
+    return jsonify({"ok": True, "total": total})
+
+
+@app.route("/api/comecar_cancelamento", methods=["POST"])
+def api_comecar_cancelamento():
+    global automacao_cancel, estado
+    if automacao_cancel is None:
+        return jsonify({"ok": False, "erro": "Configure o cancelamento primeiro!"})
+    if estado["rodando"]:
+        return jsonify({"ok": False, "erro": "Ja esta rodando!"})
+    total = len(automacao_cancel.notas)
+    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "baixada_anteriormente": 0, "erro": 0}
+    estado["tabela_nfs"] = []
+    estado["log_mensagens"] = []
+    estado["rodando"] = True
+    estado["dealer_pronto"] = False
+    estado["inicio_confirmado"] = False
+    thread = threading.Thread(target=automacao_cancel.executar_cancelamento, daemon=True)
+    thread.start()
     return jsonify({"ok": True, "total": total})
 
 
