@@ -653,6 +653,13 @@ HTML_PAGE = """
     <!-- ==================== GAULESA ==================== -->
     <div class="tab-content" id="mainContent-gaulesa" style="width:100%;">
 
+    <div class="tabs">
+        <button class="tab active" onclick="switchGauleTab('gaulesa_baixa')" id="gauleTab-gaulesa_baixa">Baixa NF</button>
+        <button class="tab" onclick="switchGauleTab('gaulesa_cancelar')" id="gauleTab-gaulesa_cancelar">Cancelamento</button>
+    </div>
+
+    <div class="tab-content active" id="gauleContent-gaulesa_baixa">
+
     <!-- PASSO 1: Upload Excel Gaulesa -->
     <div class="card">
         <h2><span class="step">1</span> Upload Excel Gaulesa</h2>
@@ -726,6 +733,10 @@ HTML_PAGE = """
         </button>
     </div>
 
+    </div> <!-- /gauleContent-gaulesa_baixa -->
+
+    <div class="tab-content" id="gauleContent-gaulesa_cancelar">
+
     <!-- Cancelamento Gaulesa -->
     <div class="card" style="border-color:#dc3545;">
         <h2 style="color:#dc3545;">Cancelar Notas Gaulesa</h2>
@@ -775,9 +786,18 @@ HTML_PAGE = """
         </div>
     </div>
 
+    </div> <!-- /gauleContent-gaulesa_cancelar -->
+
     </div> <!-- /mainContent-gaulesa -->
 
     <script>
+        function switchGauleTab(tabName) {
+            document.querySelectorAll('[id^="gauleTab-"]').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('[id^="gauleContent-"]').forEach(t => t.classList.remove('active'));
+            document.getElementById('gauleTab-' + tabName).classList.add('active');
+            document.getElementById('gauleContent-' + tabName).classList.add('active');
+        }
+
         function switchMainTab(tabName) {
             document.querySelectorAll('[id^="mainTab-"]').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('[id^="mainContent-"]').forEach(t => t.classList.remove('active'));

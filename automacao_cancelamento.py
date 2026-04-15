@@ -62,19 +62,58 @@ class AutomacaoCancelamento:
             time.sleep(2)
         return None
 
-    def _get_cancel_frame(self, main_frame, tentativas=8):
-        """Encontra gxp1_ifrm (popup de Cancelamento)."""
-        for t in range(tentativas):
-            for frame in main_frame.page.frames:
+    def _preencher_motivo_e_confirmar(self, main_frame, motivo="Erro"):
+        """Preenche o motivo e confirma o cancelamento buscando em todos os frames."""
+        # Busca o textarea e botão em TODOS os frames da página
+        page = main_frame.page
+        for t in range(10):
+            for frame in page.frames:
                 try:
-                    if frame.query_selector("#vHISTORICO_OBSERVACAO"):
-                        return frame
-                    if frame.query_selector("#IMGCONFIRMAR"):
-                        return frame
+                    ta = frame.query_selector("#vHISTORICO_OBSERVACAO")
+                    btn = frame.query_selector("#IMGCONFIRMAR")
+                    if ta or btn:
+                        if ta:
+                            ta.fill(motivo)
+                            frame.wait_for_timeout(500)
+                        if btn:
+                            btn.click()
+                            frame.wait_for_timeout(3000)
+                        return True
                 except:
                     pass
+            # Fallback: tenta via JavaScript recursivo no top document
+            try:
+                result = page.evaluate(f"""
+                    (() => {{
+                        function buscar(docRef) {{
+                            try {{
+                                const ta = docRef.getElementById('vHISTORICO_OBSERVACAO');
+                                const btn = docRef.getElementById('IMGCONFIRMAR');
+                                if (ta && btn) {{
+                                    ta.value = '{motivo}';
+                                    ta.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                    btn.click();
+                                    return true;
+                                }}
+                                const iframes = docRef.querySelectorAll('iframe');
+                                for (const f of iframes) {{
+                                    try {{
+                                        if (f.contentDocument && buscar(f.contentDocument)) return true;
+                                    }} catch(e) {{}}
+                                }}
+                            }} catch(e) {{}}
+                            return false;
+                        }}
+                        return buscar(document);
+                    }})()
+                """)
+                if result:
+                    main_frame.wait_for_timeout(3000)
+                    return True
+            except:
+                pass
             time.sleep(2)
-        return None
+        return False
 
     def _expandir_filtro_avancado(self, main_frame):
         try:
@@ -220,27 +259,12 @@ class AutomacaoCancelamento:
             self._log(f"  ERRO ao clicar cancelar: {e}")
             return "erro"
 
-        # 7. Preencher Motivo = "Erro" no popup de cancelamento (gxp1_ifrm)
-        cancel_frame = self._get_cancel_frame(main_frame)
-        if not cancel_frame:
-            self._log("  ERRO: popup de cancelamento nao abriu")
-            return "erro"
-
-        try:
-            cancel_frame.locator("#vHISTORICO_OBSERVACAO").fill("Erro")
-            cancel_frame.wait_for_timeout(500)
-            self._log(f"  Motivo: Erro")
-        except Exception as e:
-            self._log(f"  ERRO preencher motivo: {e}")
-            return "erro"
-
-        # 8. Confirmar cancelamento
-        try:
-            cancel_frame.locator("#IMGCONFIRMAR").click()
-            main_frame.wait_for_timeout(4000)
+        # 7. Preencher Motivo = "Erro" e confirmar cancelamento
+        ok = self._preencher_motivo_e_confirmar(main_frame, "Erro")
+        if ok:
             self._log(f"  >> Chassi {chassi} CANCELADO com sucesso!")
-        except Exception as e:
-            self._log(f"  ERRO confirmar cancelamento: {e}")
+        else:
+            self._log(f"  ERRO: nao conseguiu preencher motivo/confirmar cancelamento")
             return "erro"
 
         # 9. Fechar popup de Movimento
