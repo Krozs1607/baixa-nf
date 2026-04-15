@@ -160,6 +160,11 @@ class AutomacaoGaulesa:
                         self._log(f"    Linha {r}: Valor {valor_texto} MATCH | Saldo {saldo_texto} | Status PAGO")
                         encontrou_pago = True
                         continue
+                    # Valida se saldo é suficiente
+                    saldo_dealer = self._parse_valor_br(saldo_texto)
+                    if saldo_dealer < valor_excel:
+                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH mas SALDO INSUFICIENTE ({saldo_texto} < {self._formatar_valor_br(valor_excel)}) - baixada anteriormente")
+                        return 0, "baixada_anteriormente"
                     self._log(f"    Linha {r}: Valor {valor_texto} MATCH! | Saldo {saldo_texto} | Status: {status_texto}")
                     return r, "match"
                 else:
@@ -210,6 +215,10 @@ class AutomacaoGaulesa:
         if match_status == "pago":
             self._log(f"  Valor {self._formatar_valor_br(valor_excel)} encontrado mas JA PAGO")
             return "pago"
+
+        if match_status == "baixada_anteriormente":
+            self._log(f"  Saldo insuficiente - nota baixada anteriormente")
+            return "baixada_anteriormente"
 
         if match_status == "nao_encontrada":
             self._log(f"  Nenhuma NF com valor {self._formatar_valor_br(valor_excel)} encontrada - pulando")
@@ -388,6 +397,7 @@ class AutomacaoGaulesa:
             "sucesso": "Baixada com sucesso",
             "pago": "Ja estava paga - pulou",
             "nao_encontrada": "Chassi/valor nao encontrado",
+            "baixada_anteriormente": "Saldo insuficiente - baixada anteriormente",
             "erro": "Erro ao processar",
         }
         total = len(self.notas)

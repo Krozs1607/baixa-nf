@@ -206,6 +206,7 @@ class AutomacaoBaixa:
     def _processar_nf(self, main_frame, nota, indice, total):
         nf = nota["nf"]
         valor = nota["valor"]
+        valor_excel = abs(valor) if valor else 0
         valor_formatado = self._formatar_valor(valor)
         self.estado["nf_atual"] = nf
         self._log(f"[{indice}/{total}] Processando NF: {nf} | Valor: {valor_formatado}")
@@ -259,7 +260,7 @@ class AutomacaoBaixa:
         if nf_buscar != nf:
             self._log(f"  NF encontrada com prefixo 2025: {nf_buscar}")
 
-        # Captura o Valor Total da Nota direto do grid do Dealer (ANTES do check de Pago)
+        # Captura Valor Total e Saldo da NF no Dealer
         try:
             valor_total_dealer = main_frame.locator("#span_vGRID_TITULO_VALOR_0001").text_content(timeout=2000).strip()
             if valor_total_dealer:
@@ -277,6 +278,17 @@ class AutomacaoBaixa:
                 return "pago"
         except:
             pass
+
+        # Valida Saldo >= Valor Excel (se saldo < valor, ja foi baixada anteriormente)
+        try:
+            saldo_texto = main_frame.locator("#span_vGRID_TITULO_SALDO_0001").text_content(timeout=2000).strip()
+            saldo_dealer = float(saldo_texto.replace(".", "").replace(",", "."))
+            self._log(f"  Saldo (Dealer): {saldo_texto} | Valor Excel: {valor_formatado}")
+            if saldo_dealer < valor_excel:
+                self._log(f"  SALDO INSUFICIENTE ({saldo_texto} < {valor_formatado}) - Nota baixada anteriormente")
+                return "baixada_anteriormente"
+        except Exception as e:
+            self._log(f"  Aviso: nao conseguiu validar saldo: {e}")
 
         try:
             main_frame.locator("#vBMPMOVIMENTO_0001").click()
@@ -649,6 +661,7 @@ class AutomacaoBaixa:
             "sucesso": "Nota baixada com sucesso",
             "pago": "Nota ja estava paga - pulou",
             "nao_encontrada": "Nota nao encontrada no Dealer",
+            "baixada_anteriormente": "Saldo insuficiente - baixada anteriormente",
             "erro": "Erro ao processar nota",
         }
 

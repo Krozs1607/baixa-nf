@@ -23,7 +23,7 @@ estado = {
     "browser_aberto": False,
     "rodando": False,
     "loja_selecionada": None,
-    "progresso": {"total": 0, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "erro": 0},
+    "progresso": {"total": 0, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "baixada_anteriormente": 0, "erro": 0},
     "log_mensagens": [],
     "nf_atual": "",
     "tabela_nfs": [],  # Lista de {nf, status, mensagem} para a tabela de monitoramento
@@ -277,6 +277,7 @@ HTML_PAGE = """
         .badge-pago { background: #ffc10722; color: #ffc107; border: 1px solid #ffc10744; }
         .badge-erro { background: #dc354522; color: #dc3545; border: 1px solid #dc354544; }
         .badge-nao_encontrada { background: #6c757d22; color: #adb5bd; border: 1px solid #6c757d44; }
+        .badge-baixada_anteriormente { background: #ff850022; color: #ff8500; border: 1px solid #ff850044; }
         .badge-processando { background: #17a2b822; color: #17a2b8; border: 1px solid #17a2b844; }
         .badge-aguardando { background: #1a1a2e; color: #555; border: 1px solid #333; }
         .nf-atual {
@@ -1329,7 +1330,8 @@ HTML_PAGE = """
             'erro': 'Erro',
             'nao_encontrada': 'Nao Encontrada',
             'processando': 'Baixando...',
-            'aguardando': 'Aguardando'
+            'aguardando': 'Aguardando',
+            'baixada_anteriormente': 'Baixada Anterior'
         };
 
         let lastTableLen = 0;
@@ -1484,7 +1486,7 @@ def api_comecar():
         return jsonify({"ok": False, "erro": "Já está rodando!"})
 
     total = len(automacao.notas)
-    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "erro": 0}
+    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "baixada_anteriormente": 0, "erro": 0}
     estado["tabela_nfs"] = []
     estado["log_mensagens"] = []
     estado["rodando"] = True
@@ -1521,7 +1523,7 @@ def api_comecar_analise():
         return jsonify({"ok": False, "erro": "Ja esta rodando!"})
 
     total = len(automacao.notas)
-    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "erro": 0}
+    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "baixada_anteriormente": 0, "erro": 0}
     estado["tabela_analise"] = []
     estado["log_mensagens"] = []
     estado["rodando"] = True
@@ -1779,7 +1781,7 @@ def api_comecar_gaulesa():
         return jsonify({"ok": False, "erro": "Ja esta rodando!"})
 
     total = len(automacao_gaulesa.notas)
-    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "erro": 0}
+    estado["progresso"] = {"total": total, "processadas": 0, "sucesso": 0, "pago": 0, "nao_encontrada": 0, "baixada_anteriormente": 0, "erro": 0}
     estado["tabela_nfs"] = []
     estado["log_mensagens"] = []
     estado["rodando"] = True
