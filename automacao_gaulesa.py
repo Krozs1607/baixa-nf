@@ -301,52 +301,7 @@ class AutomacaoGaulesa:
             popup.wait_for_timeout(200)
             valor_field.fill(valor_formatado)
             popup.wait_for_timeout(500)
-            # 6. Empresa → MANDARIM IGUATEMI
-            try:
-                popup.evaluate(f"""
-                    (() => {{
-                        const sel = document.getElementById('TITULOMOV_EMPRESACOD_MOVIMENTO');
-                        if (!sel) return;
-                        sel.value = '{EMPRESA_IGUATEMI_VALUE}';
-                        try {{
-                            if (window.gx && window.gx.evt && window.gx.evt.onchange) {{
-                                window.gx.evt.onchange(sel);
-                            }}
-                        }} catch(e) {{}}
-                        sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                    }})()
-                """)
-                popup.wait_for_timeout(2500)
-                # Clica SIM no popup de confirmação
-                main_frame.page.evaluate("""
-                    (() => {
-                        function clicarSim(docRef) {
-                            let total = 0;
-                            try {
-                                const btns = docRef.querySelectorAll('button, input[type="button"]');
-                                for (const b of btns) {
-                                    if ((b.textContent || b.value || '').trim() === 'Sim') {
-                                        try { b.click(); total++; } catch(e) {}
-                                    }
-                                }
-                                const subIframes = docRef.querySelectorAll('iframe');
-                                for (let i = 0; i < subIframes.length; i++) {
-                                    try {
-                                        if (subIframes[i].contentDocument) {
-                                            total += clicarSim(subIframes[i].contentDocument);
-                                        }
-                                    } catch(e) {}
-                                }
-                            } catch(e) {}
-                            return total;
-                        }
-                        return clicarSim(document);
-                    })()
-                """)
-                popup.wait_for_timeout(2000)
-                self._log(f"  Empresa: MANDARIM IGUATEMI | SIM clicado")
-            except Exception as e_emp:
-                self._log(f"  AVISO Empresa: {e_emp}")
+            # Gaulesa: NAO altera a Empresa (usa a empresa original da NF)
 
             self._log(f"  Formulario preenchido | Valor: {valor_formatado}")
         except Exception as e:
