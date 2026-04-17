@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 # Configurações dos campos
 URL_DEALER = "https://workflow.grupoindiana.com.br/Portal/default.html"
 TIPO_CREDITO_VALUE = "64"       # RECEBIMENTO DE TÍTULO
-AGENTE_COBRADOR_VALUE = "55"    # CONTA MOVIMENTO FABRICA (3.06.60)
+AGENTE_COBRADOR_VALUE = "21"    # FABRICA CONTA MOVIMENTO (3.04.60) - APENAS GAULESA
 TIPO_DOCUMENTO_VALUE = "2"      # AVISO DE LANCAMENTO
 EMPRESA_IGUATEMI_VALUE = "32"   # MANDARIM IGUATEMI (sempre matriz)
 HISTORICO_TEXTO = "Baixa Garantia"
@@ -178,6 +178,93 @@ class AutomacaoGaulesa:
             return 0, "pago"
         return 0, "nao_encontrada"
 
+    def _selecionar_documento_controlado(self, main_frame, valor_total_excel):
+        """
+        Clica na seta azul (IMAGEDOCUMENTOCONTROLADO) abre popup Conta Gerencial,
+        encontra o lançamento com valor IGUAL ao valor total do Excel, e clica na setinha verde.
+        Retorna True se conseguiu selecionar.
+        """
+        page = main_frame.page
+        self._log(f"  Abrindo selecao de Documento Controlado (total Excel: R$ {self._formatar_valor_br(valor_total_excel)})")
+
+        # Clica na seta azul dentro do popup gxp0_ifrm do formulário
+        try:
+            popup = self._get_popup_frame(main_frame, procurar_formulario=True, tentativas=3)
+            if not popup:
+                self._log("  ERRO: popup formulario nao encontrado para clicar seta azul")
+                return False
+            popup.locator("#IMAGEDOCUMENTOCONTROLADO").click()
+            main_frame.wait_for_timeout(3500)
+        except Exception as e:
+            self._log(f"  ERRO ao clicar seta azul: {e}")
+            return False
+
+        # Agora procurar o popup interno com o grid de lançamentos (sel_documentocontrolado.aspx)
+        popup_lanc = None
+        for t in range(10):
+            for frame in page.frames:
+                try:
+                    url = (frame.url or "").lower()
+                    if "sel_documentocontrolado" in url or "documentocontrolado" in url:
+                        popup_lanc = frame
+                        break
+                except:
+                    pass
+            if popup_lanc:
+                break
+            time.sleep(1)
+
+        if not popup_lanc:
+            # Fallback: procurar por frame que tenha vLINKSELECTION_0001
+            for frame in page.frames:
+                try:
+                    if frame.query_selector("#vLINKSELECTION_0001"):
+                        popup_lanc = frame
+                        break
+                except:
+                    pass
+
+        if not popup_lanc:
+            self._log("  ERRO: popup de lancamentos nao abriu")
+            return False
+
+        self._log(f"  Popup lancamentos aberto")
+
+        # Percorre linhas e compara valor com valor_total_excel
+        linha_match = 0
+        for r in range(1, 30):
+            idx = str(r).zfill(4)
+            try:
+                row = popup_lanc.locator(f"#GridContainerRow_{idx}")
+                if not row.is_visible(timeout=500):
+                    break
+                valor_span = popup_lanc.locator(f"#span_vTESOURARIA_VALOR_{idx}")
+                valor_texto = valor_span.text_content(timeout=1000).strip()
+                valor_lanc = self._parse_valor_br(valor_texto)
+                if abs(valor_lanc - valor_total_excel) < 0.02:
+                    self._log(f"    Lancamento {r}: Valor {valor_texto} MATCH!")
+                    linha_match = r
+                    break
+                else:
+                    self._log(f"    Lancamento {r}: Valor {valor_texto} (diferente de R$ {self._formatar_valor_br(valor_total_excel)})")
+            except:
+                break
+
+        if linha_match == 0:
+            self._log(f"  Nenhum lancamento com valor R$ {self._formatar_valor_br(valor_total_excel)} encontrado")
+            return False
+
+        # Clica na setinha verde (vLINKSELECTION_XXXX) da linha correta
+        try:
+            idx = str(linha_match).zfill(4)
+            popup_lanc.locator(f"#vLINKSELECTION_{idx}").click()
+            main_frame.wait_for_timeout(3000)
+            self._log(f"  >> Documento Controlado selecionado (linha {linha_match})")
+            return True
+        except Exception as e:
+            self._log(f"  ERRO ao selecionar linha: {e}")
+            return False
+
     def _processar_chassi(self, main_frame, nota, indice, total):
         chassi = nota["chassi"]
         valor_excel = nota["valor"]
@@ -309,6 +396,16 @@ class AutomacaoGaulesa:
         except Exception as e:
             self._log(f"  ERRO formulario: {e}")
             return "erro"
+
+        # PASSO 6b: Selecionar Documento Controlado pelo valor TOTAL do Excel
+        valor_total_excel = self.estado.get("valor_total_excel", 0)
+        if valor_total_excel and valor_total_excel > 0:
+            ok_doc = self._selecionar_documento_controlado(main_frame, valor_total_excel)
+            if not ok_doc:
+                self._log(f"  ERRO: nao conseguiu selecionar Documento Controlado")
+                return "erro"
+        else:
+            self._log(f"  AVISO: valor_total_excel nao disponivel - pulando Documento Controlado")
 
         # PASSO 7: Confirmar
         try:
