@@ -230,6 +230,31 @@ class AutomacaoGaulesa:
 
         self._log(f"  Popup lancamentos aberto")
 
+        # Ajusta filtro de data: 01/01/ANO_ATUAL até hoje (pra pegar lancamentos antigos)
+        try:
+            import datetime
+            hoje = datetime.date.today()
+            data_ini = f"01/01/{hoje.year}"
+            data_fim = hoje.strftime("%d/%m/%Y")
+            campo_ini = popup_lanc.locator("#vFILTRO_DATAINICIO")
+            campo_ini.click()
+            campo_ini.fill("")
+            popup_lanc.wait_for_timeout(200)
+            campo_ini.fill(data_ini)
+            popup_lanc.wait_for_timeout(300)
+            campo_fim = popup_lanc.locator("#vFILTRO_DATAFIM")
+            campo_fim.click()
+            campo_fim.fill("")
+            popup_lanc.wait_for_timeout(200)
+            campo_fim.fill(data_fim)
+            popup_lanc.wait_for_timeout(300)
+            # Clica Consultar
+            popup_lanc.locator("#IMGCONSULTA").click()
+            popup_lanc.wait_for_timeout(3500)
+            self._log(f"  Filtro de data ajustado: {data_ini} ate {data_fim}")
+        except Exception as e:
+            self._log(f"  AVISO ao ajustar filtro de data: {e}")
+
         # Percorre linhas e compara valor com valor_total_excel
         linha_match = 0
         for r in range(1, 30):
