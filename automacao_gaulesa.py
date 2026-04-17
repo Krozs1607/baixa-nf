@@ -269,11 +269,11 @@ class AutomacaoGaulesa:
 
         self._log(f"  Popup lancamentos aberto")
 
-        # Ajusta filtro de data: 01/01/ANO_ATUAL até hoje (pra pegar lancamentos antigos)
+        # Ajusta filtro de data: 01/08/2025 até hoje (pra pegar lancamentos antigos)
         try:
             import datetime
             hoje = datetime.date.today()
-            data_ini = f"01/01/{hoje.year}"
+            data_ini = "01/08/2025"
             data_fim = hoje.strftime("%d/%m/%Y")
             campo_ini = popup_lanc.locator("#vFILTRO_DATAINICIO")
             campo_ini.click()
@@ -294,28 +294,51 @@ class AutomacaoGaulesa:
         except Exception as e:
             self._log(f"  AVISO ao ajustar filtro de data: {e}")
 
-        # Percorre linhas e compara valor com valor_total_excel
+        # Percorre linhas em multiplas paginas e compara valor com valor_total_excel
         linha_match = 0
-        for r in range(1, 30):
-            idx = str(r).zfill(4)
+        pagina_match = 0
+        max_paginas = 10
+
+        for pagina in range(1, max_paginas + 1):
+            if pagina > 1:
+                self._log(f"    --- Popup lancamentos: pagina {pagina} ---")
+            for r in range(1, 30):
+                idx = str(r).zfill(4)
+                try:
+                    row = popup_lanc.locator(f"#GridContainerRow_{idx}")
+                    if not row.is_visible(timeout=500):
+                        break
+                    valor_span = popup_lanc.locator(f"#span_vTESOURARIA_VALOR_{idx}")
+                    valor_texto = valor_span.text_content(timeout=1000).strip()
+                    valor_lanc = self._parse_valor_br(valor_texto)
+                    if abs(valor_lanc - valor_total_excel) < 0.02:
+                        self._log(f"    Lancamento pag{pagina} linha {r}: Valor {valor_texto} MATCH!")
+                        linha_match = r
+                        pagina_match = pagina
+                        break
+                    else:
+                        self._log(f"    Lancamento pag{pagina} linha {r}: Valor {valor_texto} (diferente de R$ {self._formatar_valor_br(valor_total_excel)})")
+                except:
+                    break
+
+            if linha_match > 0:
+                break
+
+            # Tenta proxima pagina
             try:
-                row = popup_lanc.locator(f"#GridContainerRow_{idx}")
-                if not row.is_visible(timeout=500):
+                btn_next = popup_lanc.locator("#IMGPAGENEXT")
+                if not btn_next.is_visible(timeout=500):
                     break
-                valor_span = popup_lanc.locator(f"#span_vTESOURARIA_VALOR_{idx}")
-                valor_texto = valor_span.text_content(timeout=1000).strip()
-                valor_lanc = self._parse_valor_br(valor_texto)
-                if abs(valor_lanc - valor_total_excel) < 0.02:
-                    self._log(f"    Lancamento {r}: Valor {valor_texto} MATCH!")
-                    linha_match = r
+                disabled = btn_next.get_attribute("disabled")
+                if disabled:
                     break
-                else:
-                    self._log(f"    Lancamento {r}: Valor {valor_texto} (diferente de R$ {self._formatar_valor_br(valor_total_excel)})")
+                btn_next.click()
+                popup_lanc.wait_for_timeout(3000)
             except:
                 break
 
         if linha_match == 0:
-            self._log(f"  Nenhum lancamento com valor R$ {self._formatar_valor_br(valor_total_excel)} encontrado")
+            self._log(f"  Nenhum lancamento com valor R$ {self._formatar_valor_br(valor_total_excel)} encontrado em nenhuma pagina")
             return False
 
         # Clica na setinha verde (vLINKSELECTION_XXXX) da linha correta
@@ -323,7 +346,7 @@ class AutomacaoGaulesa:
             idx = str(linha_match).zfill(4)
             popup_lanc.locator(f"#vLINKSELECTION_{idx}").click()
             main_frame.wait_for_timeout(3000)
-            self._log(f"  >> Documento Controlado selecionado (linha {linha_match})")
+            self._log(f"  >> Documento Controlado selecionado (pag {pagina_match} linha {linha_match})")
             return True
         except Exception as e:
             self._log(f"  ERRO ao selecionar linha: {e}")
