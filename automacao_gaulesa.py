@@ -324,6 +324,205 @@ class AutomacaoGaulesa:
             self._log(f"  ERRO ao selecionar linha: {e}")
             return False
 
+    def _coletar_autorizadas_todas_paginas(self, main_frame):
+        """Percorre todas as paginas coletando NFs com status Autorizado (saldo > 0)."""
+        todas = []
+        for pagina in range(1, 11):
+            for r in range(1, 20):
+                idx = str(r).zfill(4)
+                try:
+                    row = main_frame.locator(f"#GridContainerRow_{idx}")
+                    if not row.is_visible(timeout=500):
+                        break
+                    valor_texto = main_frame.locator(f"#span_vGRID_TITULO_VALOR_{idx}").text_content(timeout=1000).strip()
+                    status_texto = main_frame.locator(f"#span_vGRID_TITULO_STATUS_{idx}").text_content(timeout=1000).strip()
+                    saldo_texto = main_frame.locator(f"#span_vGRID_TITULO_SALDO_{idx}").text_content(timeout=1000).strip()
+                    valor = self._parse_valor_br(valor_texto)
+                    saldo = self._parse_valor_br(saldo_texto)
+                    if status_texto.lower() != "pago" and saldo > 0.01:
+                        todas.append({"valor": valor, "saldo": saldo, "pagina": pagina, "linha": r, "valor_texto": valor_texto})
+                except:
+                    break
+            if not self._ir_proxima_pagina(main_frame):
+                break
+        return todas
+
+    def _encontrar_combinacao_soma(self, autorizadas, valor_alvo, max_tamanho=4):
+        """Tenta combinacoes de 2 ate max_tamanho NFs que somam ao valor_alvo."""
+        from itertools import combinations
+        n = len(autorizadas)
+        for tamanho in range(2, min(max_tamanho + 1, n + 1)):
+            for combo in combinations(autorizadas, tamanho):
+                soma = sum(nf["valor"] for nf in combo)
+                if abs(soma - valor_alvo) < 0.02:
+                    return list(combo)
+        return None
+
+    def _buscar_chassi_reset(self, main_frame, chassi):
+        """Refaz busca por chassi para resetar estado (volta pra pagina 1)."""
+        try:
+            self._expandir_filtro_avancado(main_frame)
+            campo = main_frame.locator("#vTITULO_VEICULOCHASSI")
+            campo.click()
+            campo.fill("")
+            main_frame.wait_for_timeout(200)
+            campo.fill(chassi)
+            main_frame.wait_for_timeout(300)
+            main_frame.locator("#BTNCONSULTAR").click()
+            main_frame.wait_for_timeout(4000)
+            return True
+        except Exception as e:
+            self._log(f"  ERRO rebusca chassi: {e}")
+            return False
+
+    def _fazer_baixa_em_nf(self, main_frame, chassi, valor_baixa, valor_total_excel):
+        """
+        Faz a baixa numa NF com valor_baixa especifico.
+        Assume que estamos na tela de resultados da busca pelo chassi.
+        Procura linha com status Autorizado e valor==valor_baixa em todas as paginas.
+        Retorna True se baixou com sucesso.
+        """
+        # Encontra a linha
+        linha_match = 0
+        for pagina in range(1, 11):
+            for r in range(1, 20):
+                idx = str(r).zfill(4)
+                try:
+                    row = main_frame.locator(f"#GridContainerRow_{idx}")
+                    if not row.is_visible(timeout=500):
+                        break
+                    valor_texto = main_frame.locator(f"#span_vGRID_TITULO_VALOR_{idx}").text_content(timeout=1000).strip()
+                    status_texto = main_frame.locator(f"#span_vGRID_TITULO_STATUS_{idx}").text_content(timeout=1000).strip()
+                    saldo_texto = main_frame.locator(f"#span_vGRID_TITULO_SALDO_{idx}").text_content(timeout=1000).strip()
+                    valor_dealer = self._parse_valor_br(valor_texto)
+                    saldo_dealer = self._parse_valor_br(saldo_texto)
+                    if abs(valor_dealer - valor_baixa) < 0.02 and status_texto.lower() != "pago" and saldo_dealer >= valor_baixa - 0.02:
+                        linha_match = r
+                        break
+                except:
+                    break
+            if linha_match:
+                break
+            if not self._ir_proxima_pagina(main_frame):
+                break
+
+        if linha_match == 0:
+            self._log(f"    ERRO: linha com valor {self._formatar_valor_br(valor_baixa)} nao achada no grid")
+            return False
+
+        idx = str(linha_match).zfill(4)
+        self._log(f"    Processando baixa linha {linha_match} | Valor: {self._formatar_valor_br(valor_baixa)}")
+
+        # Clicar Movimento
+        try:
+            main_frame.locator(f"#vBMPMOVIMENTO_{idx}").click()
+            main_frame.wait_for_timeout(3000)
+        except Exception as e:
+            self._log(f"    ERRO Movimento: {e}")
+            return False
+
+        # Clicar INSERT
+        try:
+            popup = self._get_popup_frame(main_frame, tentativas=8)
+            if not popup:
+                self._log("    ERRO: popup nao abriu")
+                return False
+            insert_btn = popup.locator("#INSERT")
+            if not insert_btn.is_visible(timeout=5000):
+                self._log(f"    sem botao + (ja baixada)")
+                try:
+                    popup.locator("#FECHAR").click()
+                    main_frame.wait_for_timeout(2000)
+                except:
+                    pass
+                return False
+            insert_btn.click()
+            main_frame.wait_for_timeout(4000)
+        except Exception as e:
+            self._log(f"    ERRO INSERT: {e}")
+            return False
+
+        # Preencher formulário
+        try:
+            popup = self._get_popup_frame(main_frame, procurar_formulario=True, tentativas=8)
+            if not popup:
+                self._log("    ERRO: formulario nao encontrado")
+                return False
+            popup.locator("#TITULOMOV_TIPOCDCOD").select_option(value=TIPO_CREDITO_VALUE)
+            popup.wait_for_timeout(1500)
+            popup.locator("#TITULOMOV_TIPODOCUMENTOCOD").select_option(value=TIPO_DOCUMENTO_VALUE)
+            popup.wait_for_timeout(500)
+            popup.locator("#TITULOMOV_HISTORICO").click()
+            popup.wait_for_timeout(2000)
+            popup.locator("#TITULOMOV_AGENTECOBRADORCOD").select_option(value=AGENTE_COBRADOR_VALUE)
+            popup.wait_for_timeout(1000)
+            texto_historico = f"Baixa Garantia Chassi: {chassi}"
+            popup.evaluate(f"""
+                (() => {{
+                    const h = document.getElementById('TITULOMOV_HISTORICO');
+                    h.value = '{texto_historico}';
+                    h.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    h.dispatchEvent(new Event('input', {{bubbles: true}}));
+                }})()
+            """)
+            popup.wait_for_timeout(500)
+            valor_formatado = f"{valor_baixa:.2f}".replace(".", ",")
+            valor_field = popup.locator("#TITULOMOV_VALOR")
+            valor_field.click()
+            valor_field.fill("")
+            popup.wait_for_timeout(200)
+            valor_field.fill(valor_formatado)
+            popup.wait_for_timeout(500)
+            self._log(f"    Formulario preenchido | Valor: {valor_formatado}")
+        except Exception as e:
+            self._log(f"    ERRO formulario: {e}")
+            return False
+
+        # Documento Controlado
+        if valor_total_excel and valor_total_excel > 0:
+            ok_doc = self._selecionar_documento_controlado(main_frame, valor_total_excel)
+            if not ok_doc:
+                self._log(f"    ERRO: nao selecionou Documento Controlado")
+                return False
+
+        # Confirmar
+        try:
+            popup = self._get_popup_frame(main_frame, procurar_formulario=True, tentativas=3)
+            if not popup:
+                self._log("    ERRO: popup perdido antes de confirmar")
+                return False
+            popup.locator("#TRN_ENTER").click()
+            main_frame.wait_for_timeout(5000)
+            self._log(f"    >> Baixa CONFIRMADA!")
+        except Exception as e:
+            self._log(f"    ERRO confirmar: {e}")
+            return False
+
+        # Fechar popup
+        try:
+            main_frame.wait_for_timeout(2000)
+            popup = self._get_popup_frame(main_frame, tentativas=5)
+            if popup:
+                fechar = popup.locator("#FECHAR")
+                if fechar.is_visible(timeout=5000):
+                    fechar.click()
+                    main_frame.wait_for_timeout(2000)
+        except:
+            try:
+                for frame in main_frame.page.frames:
+                    try:
+                        btn = frame.query_selector("#FECHAR")
+                        if btn and btn.is_visible():
+                            btn.click()
+                            main_frame.wait_for_timeout(2000)
+                            break
+                    except:
+                        pass
+            except:
+                pass
+
+        return True
+
     def _processar_chassi(self, main_frame, nota, indice, total):
         chassi = nota["chassi"]
         valor_excel = nota["valor"]
@@ -369,8 +568,45 @@ class AutomacaoGaulesa:
             return "baixada_anteriormente"
 
         if match_status == "nao_encontrada":
-            self._log(f"  Nenhuma NF com valor {self._formatar_valor_br(valor_excel)} encontrada - pulando")
-            return "nao_encontrada"
+            # Tenta encontrar combinacao de NFs Autorizadas que somem ao valor_excel
+            self._log(f"  Valor unico nao encontrado. Tentando combinacoes de NFs Autorizadas...")
+            if not self._buscar_chassi_reset(main_frame, chassi):
+                return "nao_encontrada"
+            autorizadas = self._coletar_autorizadas_todas_paginas(main_frame)
+            self._log(f"  Coletadas {len(autorizadas)} NFs Autorizadas para analise")
+            if not autorizadas:
+                self._log(f"  Sem NFs Autorizadas - pulando")
+                return "nao_encontrada"
+            combinacao = self._encontrar_combinacao_soma(autorizadas, valor_excel, max_tamanho=4)
+            if not combinacao:
+                self._log(f"  Nenhuma combinacao soma R$ {self._formatar_valor_br(valor_excel)} - pulando")
+                return "nao_encontrada"
+
+            valores_combo = [self._formatar_valor_br(nf["valor"]) for nf in combinacao]
+            self._log(f"  COMBINACAO ENCONTRADA ({len(combinacao)} NFs): {' + '.join(valores_combo)} = R$ {self._formatar_valor_br(valor_excel)}")
+
+            # Faz baixa em cada NF da combinacao
+            valor_total_excel = self.estado.get("valor_total_excel", 0)
+            baixas_ok = 0
+            for i, nf_combo in enumerate(combinacao, start=1):
+                self._log(f"  --- Baixa {i}/{len(combinacao)} da combinacao (Valor: {self._formatar_valor_br(nf_combo['valor'])}) ---")
+                # Rebusca chassi para resetar estado
+                if not self._buscar_chassi_reset(main_frame, chassi):
+                    self._log(f"    ERRO: nao conseguiu rebuscar chassi")
+                    break
+                ok = self._fazer_baixa_em_nf(main_frame, chassi, nf_combo["valor"], valor_total_excel)
+                if ok:
+                    baixas_ok += 1
+                else:
+                    self._log(f"    ERRO na baixa {i} da combinacao")
+                    break
+
+            if baixas_ok == len(combinacao):
+                self._log(f"  >> TODAS as {baixas_ok} baixas da combinacao CONFIRMADAS!")
+                return "sucesso"
+            else:
+                self._log(f"  ERRO: {baixas_ok}/{len(combinacao)} baixas feitas - combinacao parcial")
+                return "erro"
 
         idx = str(linha_match).zfill(4)
 
