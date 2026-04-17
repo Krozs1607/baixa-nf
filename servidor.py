@@ -31,6 +31,7 @@ estado = {
     "tabela_analise": [],  # Lista para análise (não faz baixa)
     "dealer_pronto": False,  # True quando o script detectou o frame
     "inicio_confirmado": False,  # True quando o usuário clicou "Iniciar Baixas"
+    "valor_total_excel": 0,  # Soma total dos valores do Excel Gaulesa
 }
 
 automacao: AutomacaoBaixa = None
@@ -677,6 +678,15 @@ HTML_PAGE = """
         </button>
     </div>
 
+    <!-- Card de Valor Total do Excel (aparece apos upload) -->
+    <div class="card" id="card-valor-total-gaulesa" style="display:none; border:2px solid #e94560;">
+        <div style="background:linear-gradient(135deg,#0f3460,#16213e); border-radius:8px; padding:20px; text-align:center;">
+            <div style="font-size:12px; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Valor Total Acumulado (Excel)</div>
+            <div id="valor-total-preview" style="font-size:32px; font-weight:700; color:#0cca4a; margin-top:6px;">R$ 0,00</div>
+            <div id="qtd-chassis-preview" style="font-size:13px; color:#888; margin-top:4px;"></div>
+        </div>
+    </div>
+
     <!-- PASSO 2: Abrir Navegador -->
     <div class="card" id="card-comecar-gaulesa" style="display:none;">
         <h2><span class="step">2</span> Abrir Navegador</h2>
@@ -707,10 +717,6 @@ HTML_PAGE = """
         <div class="nf-atual" id="nf-atual-gaulesa"></div>
         <div class="progress-bar-container">
             <div class="progress-bar" id="progressBarGaulesa"></div>
-        </div>
-        <div style="background:linear-gradient(135deg,#0f3460,#16213e); border-radius:8px; padding:16px; margin-bottom:16px; text-align:center; border:2px solid #e94560;">
-            <div style="font-size:11px; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Valor Total Acumulado (Excel)</div>
-            <div id="valor-total-gaulesa" style="font-size:28px; font-weight:700; color:#0cca4a; margin-top:4px;">R$ 0,00</div>
         </div>
         <div class="status-bar">
             <div class="status-item total"><div class="number" id="stat-total-g">0</div><div class="label">TOTAL</div></div>
@@ -1071,6 +1077,16 @@ HTML_PAGE = """
                 if (data.ok) {
                     document.getElementById('card-comecar-gaulesa').style.display = 'block';
                     btn.textContent = 'Configurado (' + data.total + ' chassis)';
+                    // Exibe o valor total do Excel imediatamente
+                    const cardTotal = document.getElementById('card-valor-total-gaulesa');
+                    if (cardTotal) {
+                        cardTotal.style.display = 'block';
+                        const valorTotal = Number(data.valor_total_excel || 0);
+                        document.getElementById('valor-total-preview').textContent =
+                            valorTotal.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                        document.getElementById('qtd-chassis-preview').textContent =
+                            data.total + ' chassis no Excel';
+                    }
                 } else {
                     alert('Erro: ' + data.erro);
                     btn.disabled = false;
@@ -1269,13 +1285,18 @@ HTML_PAGE = """
                         'CONCLUIDO! ' + processadas + '/' + p.total + ' chassis processados';
                 }
 
-                // Tabela + Valor Total Acumulado
+                // Tabela (valor total ja vem do backend via status)
                 const tabela = data.tabela_nfs || [];
-                let totalAcumulado = 0;
-                tabela.forEach(item => { totalAcumulado += Number(item.valor || 0); });
-                const valorTotalEl = document.getElementById('valor-total-gaulesa');
-                if (valorTotalEl) {
-                    valorTotalEl.textContent = totalAcumulado.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                // Mantem o valor total do Excel visivel (vem da carga inicial do Excel)
+                if (data.valor_total_excel) {
+                    const cardTotal = document.getElementById('card-valor-total-gaulesa');
+                    if (cardTotal && cardTotal.style.display === 'none') {
+                        cardTotal.style.display = 'block';
+                    }
+                    const preview = document.getElementById('valor-total-preview');
+                    if (preview) {
+                        preview.textContent = Number(data.valor_total_excel).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                    }
                 }
 
                 const tbody = document.getElementById('tabelaBodyGaulesa');
@@ -1992,6 +2013,7 @@ def api_status():
         "tabela_nfs": estado["tabela_nfs"],
         "tabela_analise": estado["tabela_analise"],
         "dealer_pronto": estado["dealer_pronto"],
+        "valor_total_excel": estado.get("valor_total_excel", 0),
     })
 
 
@@ -2253,11 +2275,12 @@ def api_configurar_gaulesa():
     estado["tabela_nfs"] = []
     estado["tabela_analise"] = []
     estado["nf_atual"] = ""
+    estado["valor_total_excel"] = 0
 
     automacao_gaulesa = AutomacaoGaulesa(caminho, estado)
     total = automacao_gaulesa.carregar_notas()
     estado["browser_aberto"] = True
-    return jsonify({"ok": True, "total": total})
+    return jsonify({"ok": True, "total": total, "valor_total_excel": estado.get("valor_total_excel", 0)})
 
 
 @app.route("/api/configurar_cancelamento", methods=["POST"])

@@ -45,7 +45,9 @@ class AutomacaoGaulesa:
                     "valor": float(valor),
                 })
         wb.close()
-        self._log(f"Excel Gaulesa carregado: {len(self.notas)} chassis encontrados")
+        total_excel = sum(n["valor"] for n in self.notas)
+        self.estado["valor_total_excel"] = total_excel
+        self._log(f"Excel Gaulesa carregado: {len(self.notas)} chassis | Total acumulado: R$ {total_excel:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         return len(self.notas)
 
     def _get_main_frame(self, page):
