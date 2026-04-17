@@ -152,9 +152,9 @@ class AutomacaoGaulesa:
 
                 if abs(valor_dealer - valor_excel) < 0.02:
                     if status_texto.lower() == "pago":
-                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH | Saldo {saldo_texto} | Status PAGO")
-                        encontrou_pago_local = True
-                        continue
+                        # Valor bate E status Pago → ja foi pago, retorna imediatamente (nao continua buscando)
+                        self._log(f"    Linha {r}: Valor {valor_texto} MATCH | Saldo {saldo_texto} | Status PAGO - ja foi pago, pulando")
+                        return 0, "pago", True
                     saldo_dealer = self._parse_valor_br(saldo_texto)
                     if saldo_dealer < valor_excel:
                         self._log(f"    Linha {r}: Valor {valor_texto} MATCH mas SALDO INSUFICIENTE ({saldo_texto} < {self._formatar_valor_br(valor_excel)}) - baixada anteriormente")
@@ -200,8 +200,8 @@ class AutomacaoGaulesa:
             if pago_local:
                 encontrou_pago_global = True
 
-            # Se achou match ou baixada_anteriormente, retorna imediatamente
-            if status in ("match", "baixada_anteriormente"):
+            # Se achou match, baixada_anteriormente ou pago, retorna imediatamente
+            if status in ("match", "baixada_anteriormente", "pago"):
                 return linha, status
 
             # Tenta próxima página
