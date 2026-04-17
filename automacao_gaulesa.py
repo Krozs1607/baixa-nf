@@ -37,17 +37,22 @@ class AutomacaoGaulesa:
         ws = wb.active
         self.notas = []
         for row in ws.iter_rows(min_row=2, values_only=False):
-            chassi = row[0].value   # Coluna A = Chassi
+            os_num = row[0].value   # Coluna A = O.S. Numero
             valor = row[1].value    # Coluna B = Valor Total
-            if chassi and valor:
+            if os_num and valor:
+                # Converte para string limpa (remove decimal se vier como numero)
+                if isinstance(os_num, float):
+                    os_str = str(int(os_num))
+                else:
+                    os_str = str(os_num).strip()
                 self.notas.append({
-                    "chassi": str(chassi).strip(),
+                    "os": os_str,
                     "valor": float(valor),
                 })
         wb.close()
         total_excel = sum(n["valor"] for n in self.notas)
         self.estado["valor_total_excel"] = total_excel
-        self._log(f"Excel Gaulesa carregado: {len(self.notas)} chassis | Total acumulado: R$ {total_excel:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        self._log(f"Excel Gaulesa carregado: {len(self.notas)} O.S. | Total acumulado: R$ {total_excel:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         return len(self.notas)
 
     def _get_main_frame(self, page):
@@ -88,7 +93,7 @@ class AutomacaoGaulesa:
 
     def _expandir_filtro_avancado(self, main_frame):
         try:
-            chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+            chassi = main_frame.query_selector("#vTITULO_NOTAFISCALOSNUMERO")
             if chassi and chassi.is_visible():
                 return
             main_frame.evaluate("""
@@ -107,13 +112,13 @@ class AutomacaoGaulesa:
                 }
             """)
             main_frame.wait_for_timeout(1000)
-            chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+            chassi = main_frame.query_selector("#vTITULO_NOTAFISCALOSNUMERO")
             if chassi and chassi.is_visible():
                 self._log("Filtro Avancado expandido")
                 return
             self._log("AVISO: Expanda o Filtro Avancado manualmente!")
             for i in range(20):
-                chassi = main_frame.query_selector("#vTITULO_VEICULOCHASSI")
+                chassi = main_frame.query_selector("#vTITULO_NOTAFISCALOSNUMERO")
                 if chassi and chassi.is_visible():
                     return
                 time.sleep(3)
@@ -358,24 +363,28 @@ class AutomacaoGaulesa:
                     return list(combo)
         return None
 
-    def _buscar_chassi_reset(self, main_frame, chassi):
-        """Refaz busca por chassi para resetar estado (volta pra pagina 1)."""
+    def _buscar_os_reset(self, main_frame, os_num):
+        """Refaz busca por O.S. Numero para resetar estado (volta pra pagina 1)."""
         try:
             self._expandir_filtro_avancado(main_frame)
-            campo = main_frame.locator("#vTITULO_VEICULOCHASSI")
+            campo = main_frame.locator("#vTITULO_NOTAFISCALOSNUMERO")
             campo.click()
             campo.fill("")
             main_frame.wait_for_timeout(200)
-            campo.fill(chassi)
+            campo.fill(os_num)
             main_frame.wait_for_timeout(300)
             main_frame.locator("#BTNCONSULTAR").click()
             main_frame.wait_for_timeout(4000)
             return True
         except Exception as e:
-            self._log(f"  ERRO rebusca chassi: {e}")
+            self._log(f"  ERRO rebusca O.S.: {e}")
             return False
 
-    def _fazer_baixa_em_nf(self, main_frame, chassi, valor_baixa, valor_total_excel):
+    # Alias para compatibilidade
+    def _buscar_chassi_reset(self, main_frame, os_num):
+        return self._buscar_os_reset(main_frame, os_num)
+
+    def _fazer_baixa_em_nf(self, main_frame, os_num, valor_baixa, valor_total_excel):
         """
         Faz a baixa numa NF com valor_baixa especifico.
         Assume que estamos na tela de resultados da busca pelo chassi.
@@ -456,7 +465,7 @@ class AutomacaoGaulesa:
             popup.wait_for_timeout(2000)
             popup.locator("#TITULOMOV_AGENTECOBRADORCOD").select_option(value=AGENTE_COBRADOR_VALUE)
             popup.wait_for_timeout(1000)
-            texto_historico = f"Baixa Garantia Chassi: {chassi}"
+            texto_historico = f"Baixa Garantia O.S: {os_num}"
             popup.evaluate(f"""
                 (() => {{
                     const h = document.getElementById('TITULOMOV_HISTORICO');
@@ -524,20 +533,21 @@ class AutomacaoGaulesa:
         return True
 
     def _processar_chassi(self, main_frame, nota, indice, total):
-        chassi = nota["chassi"]
+        # Aceita tanto "os" (novo) quanto "chassi" (compatibilidade)
+        os_num = nota.get("os") or nota.get("chassi")
         valor_excel = nota["valor"]
-        self.estado["nf_atual"] = chassi
-        self._log(f"[{indice}/{total}] Chassi: {chassi} | Valor Excel: {self._formatar_valor_br(valor_excel)}")
+        self.estado["nf_atual"] = os_num
+        self._log(f"[{indice}/{total}] O.S.: {os_num} | Valor Excel: {self._formatar_valor_br(valor_excel)}")
 
         self._expandir_filtro_avancado(main_frame)
 
-        # PASSO 1: Preencher Chassi e consultar
+        # PASSO 1: Preencher O.S. e consultar
         try:
-            campo = main_frame.locator("#vTITULO_VEICULOCHASSI")
+            campo = main_frame.locator("#vTITULO_NOTAFISCALOSNUMERO")
             campo.click()
             campo.fill("")
             main_frame.wait_for_timeout(200)
-            campo.fill(chassi)
+            campo.fill(os_num)
             main_frame.wait_for_timeout(300)
             main_frame.locator("#BTNCONSULTAR").click()
             main_frame.wait_for_timeout(4000)
@@ -549,10 +559,10 @@ class AutomacaoGaulesa:
         try:
             row = main_frame.locator("#GridContainerRow_0001")
             if not row.is_visible(timeout=3000):
-                self._log(f"  Chassi {chassi} NAO ENCONTRADO no Dealer")
+                self._log(f"  O.S. {os_num} NAO ENCONTRADA no Dealer")
                 return "nao_encontrada"
         except:
-            self._log(f"  Chassi {chassi} NAO ENCONTRADO")
+            self._log(f"  O.S. {os_num} NAO ENCONTRADA")
             return "nao_encontrada"
 
         # PASSO 3: Percorrer linhas e encontrar a que tem valor igual ao Excel
@@ -570,7 +580,7 @@ class AutomacaoGaulesa:
         if match_status == "nao_encontrada":
             # Tenta encontrar combinacao de NFs Autorizadas que somem ao valor_excel
             self._log(f"  Valor unico nao encontrado. Tentando combinacoes de NFs Autorizadas...")
-            if not self._buscar_chassi_reset(main_frame, chassi):
+            if not self._buscar_os_reset(main_frame, os_num):
                 return "nao_encontrada"
             autorizadas = self._coletar_autorizadas_todas_paginas(main_frame)
             self._log(f"  Coletadas {len(autorizadas)} NFs Autorizadas para analise")
@@ -590,11 +600,11 @@ class AutomacaoGaulesa:
             baixas_ok = 0
             for i, nf_combo in enumerate(combinacao, start=1):
                 self._log(f"  --- Baixa {i}/{len(combinacao)} da combinacao (Valor: {self._formatar_valor_br(nf_combo['valor'])}) ---")
-                # Rebusca chassi para resetar estado
-                if not self._buscar_chassi_reset(main_frame, chassi):
-                    self._log(f"    ERRO: nao conseguiu rebuscar chassi")
+                # Rebusca O.S. para resetar estado
+                if not self._buscar_os_reset(main_frame, os_num):
+                    self._log(f"    ERRO: nao conseguiu rebuscar O.S.")
                     break
-                ok = self._fazer_baixa_em_nf(main_frame, chassi, nf_combo["valor"], valor_total_excel)
+                ok = self._fazer_baixa_em_nf(main_frame, os_num, nf_combo["valor"], valor_total_excel)
                 if ok:
                     baixas_ok += 1
                 else:
@@ -634,7 +644,7 @@ class AutomacaoGaulesa:
                 return "erro"
             insert_btn = popup.locator("#INSERT")
             if not insert_btn.is_visible(timeout=5000):
-                self._log(f"  Chassi {chassi} - sem botao + (ja baixada)")
+                self._log(f"  O.S. {os_num} - sem botao + (ja baixada)")
                 try:
                     popup.locator("#FECHAR").click()
                     main_frame.wait_for_timeout(2000)
@@ -667,7 +677,7 @@ class AutomacaoGaulesa:
             popup.locator("#TITULOMOV_AGENTECOBRADORCOD").select_option(value=AGENTE_COBRADOR_VALUE)
             popup.wait_for_timeout(1000)
             # 4. Histórico
-            texto_historico = f"Baixa Garantia Chassi: {chassi}"
+            texto_historico = f"Baixa Garantia O.S: {os_num}"
             popup.evaluate(f"""
                 (() => {{
                     const h = document.getElementById('TITULOMOV_HISTORICO');
@@ -710,7 +720,7 @@ class AutomacaoGaulesa:
                 return "erro"
             popup.locator("#TRN_ENTER").click()
             main_frame.wait_for_timeout(5000)
-            self._log(f"  >> Chassi {chassi} CONFIRMADA!")
+            self._log(f"  >> O.S. {os_num} CONFIRMADA!")
         except Exception as e:
             self._log(f"  ERRO confirmar: {e}")
             return "erro"
@@ -745,7 +755,7 @@ class AutomacaoGaulesa:
         MENSAGENS = {
             "sucesso": "Baixada com sucesso",
             "pago": "Ja estava paga - pulou",
-            "nao_encontrada": "Chassi/valor nao encontrado",
+            "nao_encontrada": "O.S./valor nao encontrado",
             "baixada_anteriormente": "Saldo insuficiente - baixada anteriormente",
             "erro": "Erro ao processar",
         }
@@ -811,10 +821,11 @@ class AutomacaoGaulesa:
                 if self.parar:
                     break
 
+                os_num = nota.get("os") or nota.get("chassi", "")
                 entrada = {
                     "cnpj": "",
-                    "nf": nota["chassi"],
-                    "nf_original": nota["chassi"],
+                    "nf": os_num,
+                    "nf_original": os_num,
                     "valor": nota["valor"],
                     "valor_total_nota": "",
                     "status": "processando",

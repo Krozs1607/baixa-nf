@@ -703,7 +703,7 @@ HTML_PAGE = """
     <div class="card" id="card-confirma-gaulesa" style="display:none;">
         <h2><span class="step">3</span> Iniciar Baixas Gaulesa</h2>
         <div class="aviso" style="border-left-color: #0cca4a;">
-            Dealer detectado! Busca por <strong>CHASSI</strong> com match por <strong>VALOR</strong>.<br>
+            Dealer detectado! Busca por <strong>O.S. Numero</strong> com match por <strong>VALOR</strong>.<br>
             Verifique se a loja esta correta e clique para iniciar.
         </div>
         <button class="btn btn-success" id="btnIniciarGaulesa" onclick="iniciarGaulesa()" style="font-size:20px; padding:18px;">
@@ -728,7 +728,7 @@ HTML_PAGE = """
             <table class="nf-table">
                 <thead><tr>
                     <th style="width:50px">#</th>
-                    <th>Chassi</th>
+                    <th>O.S.</th>
                     <th>Valor Excel</th>
                     <th>Status</th>
                     <th>Detalhe</th>
@@ -763,7 +763,7 @@ HTML_PAGE = """
         </div>
 
         <div class="card card-full">
-            <h2 style="font-size:18px; color:#e94560; margin-bottom:20px;">Detalhamento dos Chassis</h2>
+            <h2 style="font-size:18px; color:#e94560; margin-bottom:20px;">Detalhamento das O.S.</h2>
             <div class="report-table-container" id="reportTableContainerGaulesa">
                 <div class="empty-report">Nenhum dado ainda. Execute uma rodagem primeiro.</div>
             </div>
@@ -819,7 +819,7 @@ HTML_PAGE = """
                 <table class="report-table">
                     <thead><tr>
                         <th style="width:50px">#</th>
-                        <th>Chassi</th>
+                        <th>O.S.</th>
                         <th>Valor Total Nota</th>
                         <th>Saldo</th>
                         <th>Baixa Dealer</th>
@@ -1279,7 +1279,7 @@ HTML_PAGE = """
 
                 if (data.nf_atual && data.rodando) {
                     document.getElementById('nf-atual-gaulesa').textContent =
-                        'Chassi: ' + data.nf_atual + ' (' + processadas + '/' + p.total + ')';
+                        'O.S.: ' + data.nf_atual + ' (' + processadas + '/' + p.total + ')';
                 } else if (!data.rodando && processadas > 0) {
                     document.getElementById('nf-atual-gaulesa').textContent =
                         'CONCLUIDO! ' + processadas + '/' + p.total + ' chassis processados';
@@ -1394,7 +1394,7 @@ HTML_PAGE = """
                 const badge = '<span class="badge badge-' + item.status + '">' + (STATUS_LABELS[item.status] || item.status) + '</span>';
                 return '<tr><td style="color:#555">' + (idx+1) + '</td><td style="font-weight:600;color:#ccc;font-size:11px">' + (item.nf_original || item.nf) + '</td><td style="color:#0cca4a;font-weight:600">' + valor + '</td><td>' + badge + '</td></tr>';
             }).join('');
-            container.innerHTML = '<table class="report-table"><thead><tr><th style="width:50px">#</th><th>Chassi</th><th>Valor</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+            container.innerHTML = '<table class="report-table"><thead><tr><th style="width:50px">#</th><th>O.S.</th><th>Valor</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
         }
 
         // Analise Gaulesa (placeholder - usa mesma logica do Mandarim)
