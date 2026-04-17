@@ -655,6 +655,8 @@ HTML_PAGE = """
 
     <div class="tabs">
         <button class="tab active" onclick="switchGauleTab('gaulesa_baixa')" id="gauleTab-gaulesa_baixa">Baixa NF</button>
+        <button class="tab" onclick="switchGauleTab('gaulesa_relatorio')" id="gauleTab-gaulesa_relatorio">Relatorio e Graficos</button>
+        <button class="tab" onclick="switchGauleTab('gaulesa_analise')" id="gauleTab-gaulesa_analise">Analise</button>
         <button class="tab" onclick="switchGauleTab('gaulesa_cancelar')" id="gauleTab-gaulesa_cancelar">Cancelamento</button>
     </div>
 
@@ -706,6 +708,10 @@ HTML_PAGE = """
         <div class="progress-bar-container">
             <div class="progress-bar" id="progressBarGaulesa"></div>
         </div>
+        <div style="background:linear-gradient(135deg,#0f3460,#16213e); border-radius:8px; padding:16px; margin-bottom:16px; text-align:center; border:2px solid #e94560;">
+            <div style="font-size:11px; color:#aaa; text-transform:uppercase; letter-spacing:1px;">Valor Total Acumulado (Excel)</div>
+            <div id="valor-total-gaulesa" style="font-size:28px; font-weight:700; color:#0cca4a; margin-top:4px;">R$ 0,00</div>
+        </div>
         <div class="status-bar">
             <div class="status-item total"><div class="number" id="stat-total-g">0</div><div class="label">TOTAL</div></div>
             <div class="status-item ok"><div class="number" id="stat-sucesso-g">0</div><div class="label">SUCESSO</div></div>
@@ -724,6 +730,10 @@ HTML_PAGE = """
                 <tbody id="tabelaBodyGaulesa"></tbody>
             </table>
         </div>
+        <details style="margin-top:16px;">
+            <summary style="cursor:pointer; color:#888; font-size:12px;">Log detalhado</summary>
+            <div class="log-box" id="logBoxGaulesa" style="margin-top:8px;"></div>
+        </details>
         <div style="display:flex; gap:10px; margin-top:10px;">
             <button class="btn btn-primary" id="btnPausarG" onclick="pausarGaulesa()" style="flex:1;">Pausar</button>
             <button class="btn btn-danger" id="btnPararG" onclick="pararGaulesa()" style="flex:1;">Parar</button>
@@ -734,6 +744,91 @@ HTML_PAGE = """
     </div>
 
     </div> <!-- /gauleContent-gaulesa_baixa -->
+
+    <!-- SUB-ABA: RELATORIO E GRAFICOS GAULESA -->
+    <div class="tab-content" id="gauleContent-gaulesa_relatorio">
+
+        <div class="chart-container">
+            <h2 style="font-size:18px; color:#e94560; margin-bottom:20px; text-align:center;">Distribuicao Gaulesa</h2>
+            <div class="chart-wrapper">
+                <canvas id="pieChartGaulesa"></canvas>
+            </div>
+            <div class="chart-stats" id="chartStatsGaulesa"></div>
+        </div>
+
+        <div class="card card-full">
+            <h2 style="font-size:18px; color:#e94560; margin-bottom:20px;">Detalhamento dos Chassis</h2>
+            <div class="report-table-container" id="reportTableContainerGaulesa">
+                <div class="empty-report">Nenhum dado ainda. Execute uma rodagem primeiro.</div>
+            </div>
+            <button class="btn btn-success" onclick="exportarExcel()" style="margin-top:16px; background:#217346;">
+                Exportar para Excel
+            </button>
+        </div>
+
+    </div> <!-- /gauleContent-gaulesa_relatorio -->
+
+    <!-- SUB-ABA: ANALISE GAULESA -->
+    <div class="tab-content" id="gauleContent-gaulesa_analise">
+
+        <div class="card">
+            <h2><span class="step">1</span> Upload Excel Gaulesa</h2>
+            <div class="file-upload">
+                <label for="arquivoAnaliseG" class="file-label">
+                    <span id="arquivoLabelAnaliseG">Clique para selecionar o Excel da Gaulesa</span>
+                </label>
+                <input type="file" id="arquivoAnaliseG" accept=".xlsx,.xls" style="display:none;">
+            </div>
+            <button class="btn btn-primary" id="btnConfigurarAnaliseG" onclick="configurarAnaliseG()">
+                Configurar Analise
+            </button>
+        </div>
+
+        <div class="card" id="card-comecar-analiseG" style="display:none;">
+            <h2><span class="step">2</span> Abrir Navegador</h2>
+            <div class="aviso">Abra o navegador, faca login e va em Titulo a Receber (Gaulesa).</div>
+            <button class="btn btn-success" id="btnComecarAnaliseG" onclick="comecarAnaliseG()">
+                Abrir Navegador
+            </button>
+        </div>
+
+        <div class="card" id="card-confirma-analiseG" style="display:none;">
+            <h2><span class="step">3</span> Iniciar Analise</h2>
+            <div class="aviso" style="border-left-color:#0cca4a;">
+                Dealer detectado! Esta analise <strong>NAO faz baixa</strong> - apenas consulta.
+            </div>
+            <button class="btn btn-success" id="btnIniciarAnaliseG" onclick="iniciarAnaliseG()" style="font-size:20px; padding:18px;">
+                INICIAR ANALISE
+            </button>
+        </div>
+
+        <div class="card card-full" id="card-tabela-analiseG" style="display:none;">
+            <h2 style="font-size:18px; color:#e94560; margin-bottom:20px;">Analise Gaulesa</h2>
+            <div class="nf-atual" id="nf-atual-analiseG"></div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBarAnaliseG"></div>
+            </div>
+            <div class="status-bar" id="totais-analiseG"></div>
+            <div class="report-table-container">
+                <table class="report-table">
+                    <thead><tr>
+                        <th style="width:50px">#</th>
+                        <th>Chassi</th>
+                        <th>Valor Total Nota</th>
+                        <th>Saldo</th>
+                        <th>Baixa Dealer</th>
+                        <th>Baixa Excel</th>
+                        <th>Diferenca</th>
+                    </tr></thead>
+                    <tbody id="tabelaAnaliseBodyG"></tbody>
+                </table>
+            </div>
+            <button class="btn btn-success" onclick="exportarAnalise()" style="margin-top:16px; background:#217346;">
+                Exportar Analise em Excel
+            </button>
+        </div>
+
+    </div> <!-- /gauleContent-gaulesa_analise -->
 
     <div class="tab-content" id="gauleContent-gaulesa_cancelar">
 
@@ -1174,8 +1269,15 @@ HTML_PAGE = """
                         'CONCLUIDO! ' + processadas + '/' + p.total + ' chassis processados';
                 }
 
-                // Tabela
+                // Tabela + Valor Total Acumulado
                 const tabela = data.tabela_nfs || [];
+                let totalAcumulado = 0;
+                tabela.forEach(item => { totalAcumulado += Number(item.valor || 0); });
+                const valorTotalEl = document.getElementById('valor-total-gaulesa');
+                if (valorTotalEl) {
+                    valorTotalEl.textContent = totalAcumulado.toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                }
+
                 const tbody = document.getElementById('tabelaBodyGaulesa');
                 tbody.innerHTML = tabela.map((item, idx) => {
                     const valor = Number(item.valor || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
@@ -1188,7 +1290,214 @@ HTML_PAGE = """
                         '<td style="color:#888;font-size:12px">' + (item.mensagem || '') + '</td>' +
                         '</tr>';
                 }).join('');
+
+                // Log detalhado
+                const logBox = document.getElementById('logBoxGaulesa');
+                if (logBox) {
+                    logBox.innerHTML = (data.log_mensagens || []).slice(-50).map(m => {
+                        let cls = 'info';
+                        if (m.includes('CONFIRMADA') || m.includes('sucesso')) cls = 'success';
+                        else if (m.includes('ERRO')) cls = 'error';
+                        else if (m.includes('PAGA') || m.includes('pulando') || m.includes('Pago')) cls = 'warning';
+                        return '<div class="log-line ' + cls + '">' + m + '</div>';
+                    }).join('');
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+
+                // Atualiza Relatorio e Analise da Gaulesa
+                if (document.getElementById('gauleContent-gaulesa_relatorio').classList.contains('active')) {
+                    atualizarRelatorioGaulesa(tabela);
+                }
+                if (document.getElementById('gauleContent-gaulesa_analise').classList.contains('active')) {
+                    atualizarTabelaAnaliseG();
+                }
             } catch(e) {}
+        }
+
+        let pieChartGaulesa = null;
+        function atualizarRelatorioGaulesa(tabela) {
+            const counts = {sucesso: 0, pago: 0, erro: 0, nao_encontrada: 0};
+            tabela.forEach(item => { if (counts[item.status] !== undefined) counts[item.status]++; });
+            const novoData = [counts.sucesso, counts.pago, counts.erro, counts.nao_encontrada];
+
+            if (!pieChartGaulesa) {
+                const ctx = document.getElementById('pieChartGaulesa').getContext('2d');
+                pieChartGaulesa = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Baixadas', 'Ja Pagas', 'Erros', 'Nao Encontradas'],
+                        datasets: [{
+                            data: novoData,
+                            backgroundColor: ['#0cca4a', '#ffc107', '#dc3545', '#6c757d'],
+                            borderColor: '#16213e', borderWidth: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: true, animation: {duration: 0},
+                        plugins: {
+                            legend: {position: 'bottom', labels: {color: '#ccc', font: {size: 13}, padding: 15}},
+                            tooltip: {callbacks: {label: function(ctx) {
+                                const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+                                const pct = total > 0 ? ((ctx.parsed/total)*100).toFixed(1) : 0;
+                                return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%)';
+                            }}}
+                        }
+                    }
+                });
+            } else {
+                const atual = pieChartGaulesa.data.datasets[0].data;
+                if (atual.some((v, i) => v !== novoData[i])) {
+                    pieChartGaulesa.data.datasets[0].data = novoData;
+                    pieChartGaulesa.update('none');
+                }
+            }
+
+            const stats = [
+                {label: 'Baixadas', count: counts.sucesso, color: '#0cca4a'},
+                {label: 'Ja Pagas', count: counts.pago, color: '#ffc107'},
+                {label: 'Erros', count: counts.erro, color: '#dc3545'},
+                {label: 'Nao Encontradas', count: counts.nao_encontrada, color: '#6c757d'}
+            ];
+            document.getElementById('chartStatsGaulesa').innerHTML = stats.map(s =>
+                '<div class="chart-stat"><div><span class="dot" style="background:' + s.color + '"></span><span class="number">' + s.count + '</span></div><div class="label">' + s.label + '</div></div>'
+            ).join('');
+
+            const container = document.getElementById('reportTableContainerGaulesa');
+            if (tabela.length === 0) {
+                container.innerHTML = '<div class="empty-report">Nenhum dado ainda.</div>';
+                return;
+            }
+            const STATUS_LABELS = {'sucesso':'Baixada','pago':'Ja Paga','erro':'Erro','nao_encontrada':'Nao Encontrada','processando':'Processando','baixada_anteriormente':'Baixada Anterior'};
+            const rows = tabela.map((item, idx) => {
+                const valor = Number(item.valor || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+                const badge = '<span class="badge badge-' + item.status + '">' + (STATUS_LABELS[item.status] || item.status) + '</span>';
+                return '<tr><td style="color:#555">' + (idx+1) + '</td><td style="font-weight:600;color:#ccc;font-size:11px">' + (item.nf_original || item.nf) + '</td><td style="color:#0cca4a;font-weight:600">' + valor + '</td><td>' + badge + '</td></tr>';
+            }).join('');
+            container.innerHTML = '<table class="report-table"><thead><tr><th style="width:50px">#</th><th>Chassi</th><th>Valor</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        }
+
+        // Analise Gaulesa (placeholder - usa mesma logica do Mandarim)
+        document.getElementById('arquivoAnaliseG').addEventListener('change', function() {
+            const label = document.getElementById('arquivoLabelAnaliseG');
+            if (this.files && this.files[0]) {
+                label.textContent = '✓ ' + this.files[0].name;
+                this.previousElementSibling.classList.add('has-file');
+            }
+        });
+
+        async function configurarAnaliseG() {
+            const arquivo = document.getElementById('arquivoAnaliseG').files[0];
+            if (!arquivo) { alert('Selecione o Excel!'); return; }
+            const btn = document.getElementById('btnConfigurarAnaliseG');
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+            try {
+                const formData = new FormData();
+                formData.append('arquivo', arquivo);
+                const resp = await fetch('/api/configurar_gaulesa', {method: 'POST', body: formData});
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('card-comecar-analiseG').style.display = 'block';
+                    btn.textContent = 'Configurado (' + data.total + ' chassis)';
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Configurar Analise';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Configurar Analise';
+            }
+        }
+
+        async function comecarAnaliseG() {
+            const btn = document.getElementById('btnComecarAnaliseG');
+            btn.disabled = true;
+            btn.textContent = 'Abrindo navegador...';
+            try {
+                const resp = await fetch('/api/comecar_gaulesa', {method: 'POST'});
+                const data = await resp.json();
+                if (data.ok) {
+                    btn.textContent = 'Aguardando Dealer...';
+                    const check = setInterval(async () => {
+                        try {
+                            const r = await fetch('/api/status');
+                            const d = await r.json();
+                            if (d.dealer_pronto) {
+                                clearInterval(check);
+                                document.getElementById('card-confirma-analiseG').style.display = 'block';
+                                btn.textContent = 'Dealer Detectado!';
+                            }
+                        } catch(e) {}
+                    }, 2000);
+                } else {
+                    alert('Erro: ' + data.erro);
+                    btn.disabled = false;
+                    btn.textContent = 'Abrir Navegador';
+                }
+            } catch(e) {
+                alert('Erro: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Abrir Navegador';
+            }
+        }
+
+        async function iniciarAnaliseG() {
+            const btn = document.getElementById('btnIniciarAnaliseG');
+            btn.disabled = true;
+            btn.textContent = 'Iniciando...';
+            await fetch('/api/iniciar', {method: 'POST'});
+            document.getElementById('card-tabela-analiseG').style.display = 'block';
+        }
+
+        async function atualizarTabelaAnaliseG() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                const tabela = data.tabela_analise || [];
+                const total = data.progresso.total || 0;
+                const processadas = data.progresso.processadas || 0;
+
+                if (data.nf_atual && data.rodando) {
+                    document.getElementById('nf-atual-analiseG').textContent = 'Analisando: ' + data.nf_atual + ' (' + processadas + '/' + total + ')';
+                } else if (tabela.length > 0 && !data.rodando) {
+                    document.getElementById('nf-atual-analiseG').textContent = 'CONCLUIDO! ' + tabela.length + ' analisados';
+                }
+                const pct = total > 0 ? (processadas / total * 100) : 0;
+                document.getElementById('progressBarAnaliseG').style.width = pct + '%';
+
+                let totalDealer = 0, totalExcel = 0, totalNotas = 0;
+                tabela.forEach(item => {
+                    totalDealer += Number(item.valor_baixa_dealer || 0);
+                    totalExcel += Number(item.valor_baixa_excel || 0);
+                    totalNotas += parseValorBR(item.valor_total);
+                });
+                const diferenca = totalDealer - totalExcel;
+                const corDif = Math.abs(diferenca) < 0.01 ? '#0cca4a' : '#dc3545';
+                document.getElementById('totais-analiseG').innerHTML =
+                    '<div class="status-item"><div class="number" style="color:#17a2b8">' + formatarMoeda(totalNotas) + '</div><div class="label">Total Notas</div></div>' +
+                    '<div class="status-item"><div class="number" style="color:#0cca4a">' + formatarMoeda(totalDealer) + '</div><div class="label">Baixa Dealer</div></div>' +
+                    '<div class="status-item"><div class="number" style="color:#ffc107">' + formatarMoeda(totalExcel) + '</div><div class="label">Baixa Excel</div></div>' +
+                    '<div class="status-item"><div class="number" style="color:' + corDif + '">' + formatarMoeda(diferenca) + '</div><div class="label">Diferenca</div></div>';
+
+                const tbody = document.getElementById('tabelaAnaliseBodyG');
+                tbody.innerHTML = tabela.map((item, idx) => {
+                    const baixaDealer = Number(item.valor_baixa_dealer || 0);
+                    const baixaExcel = Number(item.valor_baixa_excel || 0);
+                    const dif = baixaDealer - baixaExcel;
+                    const corRow = Math.abs(dif) < 0.01 ? '' : 'style="background:#3d1a1a"';
+                    return '<tr ' + corRow + '>' +
+                        '<td style="color:#555">' + (idx+1) + '</td>' +
+                        '<td style="font-weight:600;color:#ccc;font-size:11px">' + (item.nf_original || item.nf) + '</td>' +
+                        '<td style="color:#17a2b8">R$ ' + (item.valor_total || '-') + '</td>' +
+                        '<td style="color:#ffc107">R$ ' + (item.saldo || '-') + '</td>' +
+                        '<td style="color:#0cca4a;font-weight:600">' + formatarMoeda(baixaDealer) + '</td>' +
+                        '<td style="color:#ffc107;font-weight:600">' + formatarMoeda(baixaExcel) + '</td>' +
+                        '<td style="color:' + (Math.abs(dif)<0.01?'#0cca4a':'#dc3545') + ';font-weight:600">' + formatarMoeda(dif) + '</td>' +
+                        '</tr>';
+                }).join('');
+            } catch(e) { console.error(e); }
         }
 
         // ============================================================
