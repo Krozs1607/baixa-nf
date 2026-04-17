@@ -131,15 +131,9 @@ class AutomacaoGaulesa:
         except:
             return 0.0
 
-    def _encontrar_linha_por_valor(self, main_frame, valor_excel: float):
-        """
-        Percorre linhas do grid e compara o VALOR com o valor do Excel.
-        Retorna (numero_linha, status):
-          - (N, 'match') → linha N tem valor igual e status != Pago
-          - (0, 'pago') → encontrou valor igual mas todas Pagas
-          - (0, 'nao_encontrada') → nenhuma linha tem valor igual
-        """
-        encontrou_pago = False
+    def _varrer_pagina(self, main_frame, valor_excel: float):
+        """Percorre as linhas da PAGINA ATUAL. Retorna (linha_match, status, encontrou_pago_nesta_pagina)."""
+        encontrou_pago_local = False
         for r in range(1, 20):
             idx = str(r).zfill(4)
             try:
@@ -156,25 +150,65 @@ class AutomacaoGaulesa:
                 saldo_texto = saldo_span.text_content(timeout=1000).strip()
                 valor_dealer = self._parse_valor_br(valor_texto)
 
-                # Compara VALOR com valor do Excel (tolerância de 0.02)
                 if abs(valor_dealer - valor_excel) < 0.02:
                     if status_texto.lower() == "pago":
                         self._log(f"    Linha {r}: Valor {valor_texto} MATCH | Saldo {saldo_texto} | Status PAGO")
-                        encontrou_pago = True
+                        encontrou_pago_local = True
                         continue
-                    # Valida se saldo é suficiente
                     saldo_dealer = self._parse_valor_br(saldo_texto)
                     if saldo_dealer < valor_excel:
                         self._log(f"    Linha {r}: Valor {valor_texto} MATCH mas SALDO INSUFICIENTE ({saldo_texto} < {self._formatar_valor_br(valor_excel)}) - baixada anteriormente")
-                        return 0, "baixada_anteriormente"
+                        return 0, "baixada_anteriormente", encontrou_pago_local
                     self._log(f"    Linha {r}: Valor {valor_texto} MATCH! | Saldo {saldo_texto} | Status: {status_texto}")
-                    return r, "match"
+                    return r, "match", encontrou_pago_local
                 else:
                     self._log(f"    Linha {r}: Valor {valor_texto} | Saldo {saldo_texto} | Status {status_texto} (diferente)")
             except:
                 break
+        return 0, None, encontrou_pago_local
 
-        if encontrou_pago:
+    def _ir_proxima_pagina(self, main_frame) -> bool:
+        """Clica em IMGPAGENEXT. Retorna True se avançou para próxima página."""
+        try:
+            btn_next = main_frame.locator("#IMGPAGENEXT")
+            if not btn_next.is_visible(timeout=500):
+                return False
+            # Verifica se o botão está habilitado (não desabilitado)
+            disabled = btn_next.get_attribute("disabled")
+            if disabled:
+                return False
+            btn_next.click()
+            main_frame.wait_for_timeout(3000)
+            return True
+        except:
+            return False
+
+    def _encontrar_linha_por_valor(self, main_frame, valor_excel: float):
+        """
+        Percorre linhas do grid (multiplas paginas) e compara o VALOR com o valor do Excel.
+        Se nao encontrar match na pagina atual, vai para a proxima pagina.
+        Retorna (numero_linha, status).
+        """
+        encontrou_pago_global = False
+        max_paginas = 10
+
+        for pagina in range(1, max_paginas + 1):
+            if pagina > 1:
+                self._log(f"  --- Buscando na pagina {pagina} ---")
+
+            linha, status, pago_local = self._varrer_pagina(main_frame, valor_excel)
+            if pago_local:
+                encontrou_pago_global = True
+
+            # Se achou match ou baixada_anteriormente, retorna imediatamente
+            if status in ("match", "baixada_anteriormente"):
+                return linha, status
+
+            # Tenta próxima página
+            if not self._ir_proxima_pagina(main_frame):
+                break
+
+        if encontrou_pago_global:
             return 0, "pago"
         return 0, "nao_encontrada"
 
